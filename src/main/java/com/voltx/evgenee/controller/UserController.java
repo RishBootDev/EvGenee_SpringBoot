@@ -6,8 +6,8 @@ import com.voltx.evgenee.dto.responses.LoginResponse;
 import com.voltx.evgenee.dto.responses.UserResponseDto;
 import com.voltx.evgenee.service.UserService;
 import lombok.RequiredArgsConstructor;
-import org.apache.tomcat.util.net.openssl.ciphers.Authentication;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -32,20 +32,15 @@ public class UserController {
     }
 
     @GetMapping("/profile")
-    public ResponseEntity<UserResponseDto> getProfile(
-            Authentication authentication) {
-        return null;
-       // return ResponseEntity.ok(
-                //userService.getProfile(authentication.getName())
-
+    public ResponseEntity<UserResponseDto> getProfile() {
+        String email = SecurityContextHolder.getContext().getAuthentication().getName();
+        return ResponseEntity.ok(userService.getProfile(email));
     }
 
     @PutMapping("/profile")
     public ResponseEntity<UserResponseDto> updateProfile(
-            @RequestBody UserRequestDto requestDto,
-            Authentication authentication) {
-
-//
-        return null;
+            @RequestBody UserRequestDto requestDto) {
+        String email = SecurityContextHolder.getContext().getAuthentication().getName();
+        return ResponseEntity.ok(userService.updateProfile(email, requestDto));
     }
 }

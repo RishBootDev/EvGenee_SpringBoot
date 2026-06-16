@@ -48,7 +48,6 @@ public class AIServiceImpl implements AIService {
                           VehicleRepository vehicleRepository,
                           GeocodingService geocodingService) {
         this.chatClient = chatClientBuilder
-                .defaultTools()
                 .build();
         this.chatMessageRepository = chatMessageRepository;
         this.userRepository = userRepository;
