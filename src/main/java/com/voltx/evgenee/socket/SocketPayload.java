@@ -13,7 +13,7 @@ public class SocketPayload {
     private String bookingId;
     private String status;
     private String message;
-    private Instant timestamp;
+    private String timestamp;
     private Object data;
     private Long count;
     private String type;

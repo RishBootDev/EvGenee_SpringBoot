@@ -51,7 +51,7 @@ public class RealtimeNotificationService {
                 .startTime(startTime)
                 .endTime(endTime)
                 .date(date)
-                .timestamp(Instant.now())
+                .timestamp(Instant.now().toString())
                 .build();
         emitToStation(stationId, "booking:created", stationPayload);
 
@@ -71,7 +71,7 @@ public class RealtimeNotificationService {
                         "activeBookings", activeBookings,
                         "totalPorts", totalPorts
                 ))
-                .timestamp(Instant.now())
+                .timestamp(Instant.now().toString())
                 .build();
         emitToStation(stationId, "availability:updated", payload);
     }
@@ -81,7 +81,7 @@ public class RealtimeNotificationService {
                 .stationId(stationId)
                 .connectorType(connectorType)
                 .status(status)
-                .timestamp(Instant.now())
+                .timestamp(Instant.now().toString())
                 .build();
         emitToAll("station:capacity_changed", payload);
     }
@@ -138,7 +138,7 @@ public class RealtimeNotificationService {
         SocketPayload payload = SocketPayload.builder()
                 .stationId(stationId)
                 .data(updates)
-                .timestamp(Instant.now())
+                .timestamp(Instant.now().toString())
                 .build();
         emitToStation(stationId, "station:updated", payload);
     }
@@ -163,7 +163,7 @@ public class RealtimeNotificationService {
     public void notifyAutoCompleted(long count) {
         SocketPayload payload = SocketPayload.builder()
                 .count(count)
-                .timestamp(Instant.now())
+                .timestamp(Instant.now().toString())
                 .build();
         emitToAll("bookings:autoCompleted", payload);
     }

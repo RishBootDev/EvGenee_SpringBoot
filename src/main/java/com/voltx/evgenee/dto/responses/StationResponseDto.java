@@ -1,20 +1,22 @@
 package com.voltx.evgenee.dto.responses;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.voltx.evgenee.dto.common.*;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import lombok.*;
 
 import java.util.List;
 
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
+@ToString
 @Builder
 public class StationResponseDto {
     private Long id;
+
+    @JsonProperty("_id")
     private String _id;
+
     private String name;
     private Object ownerofStation;
     private LocationDto location;

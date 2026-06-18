@@ -52,11 +52,14 @@ public class StationServiceImpl implements StationService {
     @Override
     @Transactional(readOnly = true)
     public List<StationResponseDto> getNearbyStations(Double latitude, Double longitude, Double radius) {
-        return stationRepository.findAll().stream()
+        List<StationResponseDto> list = stationRepository.findAll().stream()
                 .map(station -> toResponse(station, latitude, longitude))
                 .filter(station -> radius == null || station.getDistanceKm() == null || station.getDistanceKm() <= radius)
                 .sorted(Comparator.comparing(s -> s.getDistanceKm() == null ? Double.MAX_VALUE : s.getDistanceKm()))
                 .toList();
+
+        for(StationResponseDto dto : list) System.out.println(dto);
+        return list;
     }
 
     @Override

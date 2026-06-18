@@ -43,19 +43,19 @@ public class StationController {
 
     @GetMapping("/{stationId}")
     public ResponseEntity<ApiResponse<StationResponseDto>> getStationById(
-            @PathVariable Long stationId) {
+            @PathVariable String stationId) {
 
-        return ResponseEntity.ok(ApiResponse.ok(stationService.getStationById(stationId)));
+        return ResponseEntity.ok(ApiResponse.ok(stationService.getStationById(Long.parseLong(stationId))));
     }
 
     @PostMapping("/{stationId}/review")
     public ResponseEntity<ApiResponse<ReviewResponseDto>> addReview(
-            @PathVariable Long stationId,
+            @PathVariable String stationId,
             @RequestBody ReviewRequestDto request) {
 
         return ResponseEntity.ok(ApiResponse.ok(
                 stationService.addReview(
-                        stationId,
+                        Long.parseLong(stationId),
                         request)));
     }
 
@@ -78,12 +78,12 @@ public class StationController {
 
     @PutMapping("/{stationId}")
     public ResponseEntity<ApiResponse<StationResponseDto>> updateStation(
-            @PathVariable Long stationId,
+            @PathVariable String stationId,
             @RequestBody StationRequestDto request) {
 
         return ResponseEntity.ok(ApiResponse.ok(
                 stationService.updateStation(
-                        stationId,
+                        Long.parseLong(stationId),
                         request)));
     }
 
@@ -112,11 +112,11 @@ public class StationController {
 
     @PutMapping("/admin/{stationId}/status")
     public ResponseEntity<String> updateStationStatus(
-            @PathVariable Long stationId,
+            @PathVariable String stationId,
             @RequestParam String status) {
 
         stationService.updateStationStatus(
-                stationId,
+                Long.parseLong(stationId),
                 status);
 
         return ResponseEntity.ok(
@@ -125,9 +125,9 @@ public class StationController {
 
     @PutMapping("/admin/{stationId}/suspend")
     public ResponseEntity<String> suspendStation(
-            @PathVariable Long stationId) {
+            @PathVariable String stationId) {
 
-        stationService.suspendStation(stationId);
+        stationService.suspendStation(Long.parseLong(stationId));
 
         return ResponseEntity.ok(
                 "Station suspended successfully");
@@ -135,9 +135,9 @@ public class StationController {
 
     @DeleteMapping("/admin/{stationId}")
     public ResponseEntity<String> deleteStation(
-            @PathVariable Long stationId) {
+            @PathVariable String stationId) {
 
-        stationService.deleteStation(stationId);
+        stationService.deleteStation(Long.parseLong(stationId));
 
         return ResponseEntity.ok(
                 "Station deleted successfully");

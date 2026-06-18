@@ -1,5 +1,6 @@
 package com.voltx.evgenee.dto.responses;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -11,6 +12,8 @@ import lombok.NoArgsConstructor;
 @Builder
 public class BookingResponseDto {
     private Long id;
+
+    @JsonProperty("_id")
     private String _id;
     private Object user;
     private Object station;
