@@ -9,6 +9,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import java.util.Date;
 import java.util.stream.Collectors;
@@ -65,6 +66,15 @@ public class GlobalExceptionHandler {
                 .collect(Collectors.joining(", "));
         return buildErrorResponse(
                 errors, ex, request, HttpStatus.BAD_REQUEST, "VALIDATION_ERROR");
+    }
+
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ErrorResponse> handleTypeMismatch(MethodArgumentTypeMismatchException ex, WebRequest request) {
+        log.warn("MethodArgumentTypeMismatchException: {}", ex.getMessage());
+        String userMessage = String.format("Invalid value '%s' for parameter '%s'. Expected type: %s",
+                ex.getValue(), ex.getName(), ex.getRequiredType() != null ? ex.getRequiredType().getSimpleName() : "unknown");
+        return buildErrorResponse(
+                userMessage, ex, request, HttpStatus.BAD_REQUEST, "TYPE_MISMATCH_ERROR");
     }
 
     @ExceptionHandler(Exception.class)

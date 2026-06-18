@@ -13,7 +13,7 @@ import java.util.List;
 @AllArgsConstructor
 @Builder
 public class StationResponseDto {
-    private String id;
+    private Long id;
     private String _id;
     private String name;
     private Object ownerofStation;

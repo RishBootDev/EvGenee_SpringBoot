@@ -43,6 +43,13 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> auth
                     .requestMatchers("/api/v1/users/register").permitAll()
                     .requestMatchers("/api/v1/users/login").permitAll()
+                    .requestMatchers("/api/v1/users/forgot-password").permitAll()
+                    .requestMatchers("/api/v1/users/verify-otp").permitAll()
+                    .requestMatchers("/api/v1/users/reset-password").permitAll()
+                    .requestMatchers("/api/v1/stations/nearby").permitAll()
+                    .requestMatchers("/api/v1/stations/{stationId}").permitAll()
+                    .requestMatchers("/api/v1/roadside/issue-types").permitAll()
+                    .requestMatchers("/api/v1/roadside/nearest-mechanic").permitAll()
                     .requestMatchers("/ws/**").permitAll()
                     .requestMatchers("/swagger-ui/**").permitAll()
                     .requestMatchers("/swagger-ui.html").permitAll()

@@ -13,6 +13,9 @@ import java.util.concurrent.ConcurrentHashMap;
 @Slf4j
 public class GeocodingService {
 
+    private static final double BHOPAL_LON = 77.4126;
+    private static final double BHOPAL_LAT = 23.2599;
+
     private final RestClient restClient;
     private final ObjectMapper objectMapper;
     private final Map<String, double[]> geocodeCache = new ConcurrentHashMap<>();
@@ -49,7 +52,7 @@ public class GeocodingService {
         } catch (Exception e) {
             log.error("Geocoding error: {}", e.getMessage());
         }
-        return null;
+        return new double[]{BHOPAL_LON, BHOPAL_LAT};
     }
 
     public String reverseGeocode(double lat, double lng) {
@@ -73,7 +76,7 @@ public class GeocodingService {
         } catch (Exception e) {
             log.error("Reverse geocoding error: {}", e.getMessage());
         }
-        return null;
+        return "Bhopal, Madhya Pradesh, India";
     }
 
     public RoadInfo getRoadDistance(double[] startCoords, double[] endCoords) {
@@ -101,7 +104,17 @@ public class GeocodingService {
         } catch (Exception e) {
             log.error("OSRM error: {}", e.getMessage());
         }
-        return null;
+        double distanceKm = haversine(startCoords[1], startCoords[0], endCoords[1], endCoords[0]);
+        return new RoadInfo(Math.round(distanceKm * 100.0) / 100.0, Math.round(distanceKm * 1.5 * 10.0) / 10.0);
+    }
+
+    private double haversine(double lat1, double lon1, double lat2, double lon2) {
+        double dLat = Math.toRadians(lat2 - lat1);
+        double dLon = Math.toRadians(lon2 - lon1);
+        double a = Math.sin(dLat / 2) * Math.sin(dLat / 2)
+                + Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2))
+                * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        return 6371 * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
     }
 
     public record RoadInfo(double distanceKm, double durationMins) {}

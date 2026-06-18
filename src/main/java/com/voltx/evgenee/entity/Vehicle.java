@@ -20,6 +20,7 @@ public class Vehicle {
 
     private String model;
     private String licensePlate;
+    private String connectorType;
 
     @Enumerated(EnumType.STRING)
     private VehicleType type;

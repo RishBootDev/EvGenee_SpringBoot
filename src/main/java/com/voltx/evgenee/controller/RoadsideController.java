@@ -1,9 +1,7 @@
 package com.voltx.evgenee.controller;
 
-import com.voltx.evgenee.dto.common.MechanicDto;
-import com.voltx.evgenee.dto.requests.MessageRequestDto;
 import com.voltx.evgenee.dto.requests.SosRequestDto;
-import com.voltx.evgenee.dto.responses.MessageResponseDto;
+import com.voltx.evgenee.dto.responses.ApiResponse;
 import com.voltx.evgenee.dto.responses.SosResponseDto;
 import com.voltx.evgenee.service.RoadsideService;
 import lombok.RequiredArgsConstructor;
@@ -11,6 +9,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/v1/roadside")
@@ -20,57 +19,52 @@ public class RoadsideController {
     private final RoadsideService roadsideService;
 
     @GetMapping("/issue-types")
-    public ResponseEntity<List<String>> getIssueTypes() {
+    public ResponseEntity<ApiResponse<List<Map<String, String>>>> getIssueTypes() {
 
-        return ResponseEntity.ok(
-                roadsideService.getIssueTypes()
-        );
+        List<Map<String, String>> data = roadsideService.getIssueTypes().stream()
+                .map(v -> Map.of("value", v, "label", v))
+                .toList();
+        return ResponseEntity.ok(ApiResponse.ok(data));
     }
 
     @GetMapping("/nearest-mechanic")
-    public ResponseEntity<com.voltx.evgenee.dto.responses.SosResponseDto.MechanicDto> getNearestMechanic(
-            @RequestParam Double latitude,
-            @RequestParam Double longitude) {
+    public ResponseEntity<ApiResponse<com.voltx.evgenee.dto.responses.SosResponseDto.MechanicDto>> getNearestMechanic(
+            @RequestParam(required = false) Double latitude,
+            @RequestParam(required = false, name = "lat") Double lat,
+            @RequestParam(required = false) Double longitude,
+            @RequestParam(required = false, name = "lng") Double lng) {
 
-        return ResponseEntity.ok(
-                roadsideService.getNearestMechanic(latitude, longitude)
-        );
+        return ResponseEntity.ok(ApiResponse.ok(roadsideService.getNearestMechanic(
+                latitude != null ? latitude : lat,
+                longitude != null ? longitude : lng)));
     }
 
     @PostMapping("/sos")
-    public ResponseEntity<SosResponseDto> createSOSRequest(
+    public ResponseEntity<ApiResponse<SosResponseDto>> createSOSRequest(
             @RequestBody SosRequestDto requestDto) {
 
-        return ResponseEntity.ok(
-                roadsideService.createSOSRequest(requestDto)
-        );
+        return ResponseEntity.ok(ApiResponse.ok("SOS request created", roadsideService.createSOSRequest(requestDto)));
     }
 
 
     @GetMapping("/my-requests")
-    public ResponseEntity<List<SosResponseDto>> getMyRequests() {
+    public ResponseEntity<ApiResponse<List<SosResponseDto>>> getMyRequests() {
 
-        return ResponseEntity.ok(
-                roadsideService.getMyRequests()
-        );
+        return ResponseEntity.ok(ApiResponse.ok(roadsideService.getMyRequests()));
     }
 
     @GetMapping("/sos/{requestId}")
-    public ResponseEntity<SosResponseDto> getRequestDetails(
+    public ResponseEntity<ApiResponse<SosResponseDto>> getRequestDetails(
             @PathVariable Long requestId) {
 
-        return ResponseEntity.ok(
-                roadsideService.getRequestDetails(requestId)
-        );
+        return ResponseEntity.ok(ApiResponse.ok(roadsideService.getRequestDetails(requestId)));
     }
 
 
     @PatchMapping("/sos/{requestId}/cancel")
-    public ResponseEntity<SosResponseDto> cancelRequest(
+    public ResponseEntity<ApiResponse<SosResponseDto>> cancelRequest(
             @PathVariable Long requestId) {
 
-        return ResponseEntity.ok(
-                roadsideService.cancelRequest(requestId)
-        );
+        return ResponseEntity.ok(ApiResponse.ok("SOS request cancelled", roadsideService.cancelRequest(requestId)));
     }
 }

@@ -35,8 +35,13 @@ public class Payment {
     @Enumerated(EnumType.STRING)
     private PaymentStatus status;
 
-    @Column(nullable = false)
     private String transactionId;
+    @Column(unique = true)
+    private String orderId;
+    private String currency;
+    private String receipt;
+    private String razorpaySignature;
+    private String razorpayStatus;
 
     private Instant paidAt;
 }

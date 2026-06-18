@@ -3,6 +3,7 @@ package com.voltx.evgenee.controller;
 
 import com.voltx.evgenee.dto.requests.ReviewRequestDto;
 import com.voltx.evgenee.dto.requests.StationRequestDto;
+import com.voltx.evgenee.dto.responses.ApiResponse;
 import com.voltx.evgenee.dto.responses.ReviewResponseDto;
 import com.voltx.evgenee.dto.responses.StationResponseDto;
 import com.voltx.evgenee.service.StationService;
@@ -22,64 +23,68 @@ public class StationController {
 
 
     @GetMapping("/nearby")
-    public ResponseEntity<List<StationResponseDto>> getNearbyStations(
-            @RequestParam Double latitude,
-            @RequestParam Double longitude,
-            @RequestParam(defaultValue = "10") Double radius) {
+    public ResponseEntity<ApiResponse<List<StationResponseDto>>> getNearbyStations(
+            @RequestParam(required = false) Double latitude,
+            @RequestParam(required = false, name = "lat") Double lat,
+            @RequestParam(required = false) Double longitude,
+            @RequestParam(required = false, name = "lng") Double lng,
+            @RequestParam(defaultValue = "10", required = false) Double radius,
+            @RequestParam(required = false, name = "maxDistance") Double maxDistance) {
 
-        return ResponseEntity.ok(
+        Double finalLat = latitude != null ? latitude : lat;
+        Double finalLng = longitude != null ? longitude : lng;
+        Double finalRadius = maxDistance != null ? maxDistance / 1000.0 : radius;
+        return ResponseEntity.ok(ApiResponse.ok(
                 stationService.getNearbyStations(
-                        latitude,
-                        longitude,
-                        radius));
+                        finalLat,
+                        finalLng,
+                        finalRadius)));
     }
 
     @GetMapping("/{stationId}")
-    public ResponseEntity<StationResponseDto> getStationById(
+    public ResponseEntity<ApiResponse<StationResponseDto>> getStationById(
             @PathVariable Long stationId) {
 
-        return ResponseEntity.ok(
-                stationService.getStationById(stationId));
+        return ResponseEntity.ok(ApiResponse.ok(stationService.getStationById(stationId)));
     }
 
     @PostMapping("/{stationId}/review")
-    public ResponseEntity<ReviewResponseDto> addReview(
+    public ResponseEntity<ApiResponse<ReviewResponseDto>> addReview(
             @PathVariable Long stationId,
             @RequestBody ReviewRequestDto request) {
 
-        return ResponseEntity.ok(
+        return ResponseEntity.ok(ApiResponse.ok(
                 stationService.addReview(
                         stationId,
-                        request));
+                        request)));
     }
 
 
     @PostMapping("/add")
-    public ResponseEntity<StationResponseDto> addStation(
+    public ResponseEntity<ApiResponse<StationResponseDto>> addStation(
             @RequestBody StationRequestDto request) {
 
-        return ResponseEntity.ok(
-                stationService.addStation(request));
+        return ResponseEntity.ok(ApiResponse.ok(stationService.addStation(request)));
     }
 
     @GetMapping("/owner/my-stations")
-    public ResponseEntity<List<StationResponseDto>> getMyStations(
+    public ResponseEntity<ApiResponse<List<StationResponseDto>>> getMyStations(
             Authentication authentication) {
 
-        return ResponseEntity.ok(
+        return ResponseEntity.ok(ApiResponse.ok(
                 stationService.getMyStations(
-                        authentication.getName()));
+                        authentication.getName())));
     }
 
     @PutMapping("/{stationId}")
-    public ResponseEntity<StationResponseDto> updateStation(
+    public ResponseEntity<ApiResponse<StationResponseDto>> updateStation(
             @PathVariable Long stationId,
             @RequestBody StationRequestDto request) {
 
-        return ResponseEntity.ok(
+        return ResponseEntity.ok(ApiResponse.ok(
                 stationService.updateStation(
                         stationId,
-                        request));
+                        request)));
     }
 
     @PatchMapping("/{stationId}/toggle")
@@ -93,18 +98,16 @@ public class StationController {
     }
 
     @GetMapping("/admin/all-stations")
-    public ResponseEntity<List<StationResponseDto>> getAllStations() {
+    public ResponseEntity<ApiResponse<List<StationResponseDto>>> getAllStations() {
 
-        return ResponseEntity.ok(
-                stationService.getAllStations());
+        return ResponseEntity.ok(ApiResponse.ok(stationService.getAllStations()));
     }
 
     @GetMapping("/admin/owner/{ownerId}")
-    public ResponseEntity<List<StationResponseDto>> getStationsByOwner(
+    public ResponseEntity<ApiResponse<List<StationResponseDto>>> getStationsByOwner(
             @PathVariable Long ownerId) {
 
-        return ResponseEntity.ok(
-                stationService.getStationsByOwner(ownerId));
+        return ResponseEntity.ok(ApiResponse.ok(stationService.getStationsByOwner(ownerId)));
     }
 
     @PutMapping("/admin/{stationId}/status")

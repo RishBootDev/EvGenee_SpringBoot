@@ -38,6 +38,13 @@ public class Booking {
 
     private Instant startTime;
     private Instant endTime;
+    private String connectorType;
+    private String vehicleNumber;
+    private Integer durationMinutes;
+    private Double estimatedKWh;
+    private Double totalCost;
+    private Double platformFee;
+    private Double grandTotal;
 
     @Enumerated(EnumType.STRING)
     private BookingStatus status;
@@ -51,6 +58,7 @@ public class Booking {
     private Instant checkedInAt;
     private String otp;
     private Instant otpExpiresAt;
+    @Builder.Default
     private boolean reminderSent = false;
 
     @CreatedDate

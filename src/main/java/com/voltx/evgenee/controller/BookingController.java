@@ -2,6 +2,7 @@ package com.voltx.evgenee.controller;
 
 
 import com.voltx.evgenee.dto.requests.BookingRequestDto;
+import com.voltx.evgenee.dto.responses.ApiResponse;
 import com.voltx.evgenee.dto.responses.BookingResponseDto;
 import com.voltx.evgenee.service.BookingService;
 import lombok.RequiredArgsConstructor;
@@ -19,94 +20,80 @@ public class BookingController {
     private final BookingService bookingService;
 
     @PostMapping("/validate")
-    public ResponseEntity<BookingResponseDto> validateBooking(
+    public ResponseEntity<ApiResponse<BookingResponseDto>> validateBooking(
             @RequestBody BookingRequestDto requestDto) {
 
-        return ResponseEntity.ok(
-                bookingService.validateBooking(requestDto)
-        );
+        return ResponseEntity.ok(ApiResponse.ok(bookingService.validateBooking(requestDto)));
     }
 
     @PostMapping("/create")
-    public ResponseEntity<BookingResponseDto> createBooking(
+    public ResponseEntity<ApiResponse<BookingResponseDto>> createBooking(
             @RequestBody BookingRequestDto requestDto) {
 
-        return ResponseEntity.ok(
-                bookingService.createBooking(requestDto)
-        );
+        return ResponseEntity.ok(ApiResponse.ok(bookingService.createBooking(requestDto)));
     }
 
 
     @GetMapping("/availability")
-    public ResponseEntity<?> checkAvailability(
+    public ResponseEntity<ApiResponse<Object>> checkAvailability(
             @RequestParam Long stationId,
-            @RequestParam LocalDate bookingDate) {
+            @RequestParam(required = false) LocalDate bookingDate,
+            @RequestParam(required = false) LocalDate date) {
 
-        return ResponseEntity.ok(
-                bookingService.checkAvailability(stationId, bookingDate)
-        );
+        return ResponseEntity.ok(ApiResponse.ok(
+                bookingService.checkAvailability(stationId, bookingDate != null ? bookingDate : date)
+        ));
     }
 
     @GetMapping("/my-bookings")
-    public ResponseEntity<List<BookingResponseDto>> getMyBookings() {
+    public ResponseEntity<ApiResponse<List<BookingResponseDto>>> getMyBookings() {
 
-        return ResponseEntity.ok(
-                bookingService.getMyBookings()
-        );
+        return ResponseEntity.ok(ApiResponse.ok(bookingService.getMyBookings()));
     }
 
     @GetMapping("/station/{stationId}")
-    public ResponseEntity<List<BookingResponseDto>> getBookingsByStation(
+    public ResponseEntity<ApiResponse<List<BookingResponseDto>>> getBookingsByStation(
             @PathVariable Long stationId) {
 
-        return ResponseEntity.ok(
-                bookingService.getBookingsByStation(stationId)
-        );
+        return ResponseEntity.ok(ApiResponse.ok(bookingService.getBookingsByStation(stationId)));
     }
 
     @GetMapping("/{bookingId}")
-    public ResponseEntity<BookingResponseDto> getBookingById(
+    public ResponseEntity<ApiResponse<BookingResponseDto>> getBookingById(
             @PathVariable Long bookingId) {
 
-        return ResponseEntity.ok(
-                bookingService.getBookingById(bookingId)
-        );
+        return ResponseEntity.ok(ApiResponse.ok(bookingService.getBookingById(bookingId)));
     }
 
     @PostMapping("/{bookingId}/cancel")
-    public ResponseEntity<BookingResponseDto> cancelBooking(
-            @RequestParam Long bookingId,
-            @RequestParam String reason) {
+    public ResponseEntity<ApiResponse<BookingResponseDto>> cancelBooking(
+            @PathVariable Long bookingId,
+            @RequestBody(required = false) java.util.Map<String, String> body) {
 
-        return ResponseEntity.ok(
-                bookingService.cancelBooking(bookingId, reason)
-        );
+        String reason = body != null ? body.getOrDefault("reason", "User cancelled") : "User cancelled";
+        return ResponseEntity.ok(ApiResponse.ok(bookingService.cancelBooking(bookingId, reason)));
     }
 
     @PostMapping("/{bookingId}/check-in")
-    public ResponseEntity<BookingResponseDto> checkInBooking(
-            @PathVariable Long bookingId, String otp) {
+    public ResponseEntity<ApiResponse<BookingResponseDto>> checkInBooking(
+            @PathVariable Long bookingId,
+            @RequestBody(required = false) java.util.Map<String, String> body) {
 
-        return ResponseEntity.ok(
-                bookingService.checkInBooking(bookingId, otp)
-        );
+        String otp = body != null ? body.get("otp") : null;
+        return ResponseEntity.ok(ApiResponse.ok(bookingService.checkInBooking(bookingId, otp)));
     }
 
     @PostMapping("/{bookingId}/complete")
-    public ResponseEntity<BookingResponseDto> completeBooking(
+    public ResponseEntity<ApiResponse<BookingResponseDto>> completeBooking(
             @PathVariable Long bookingId) {
 
-        return ResponseEntity.ok(
-                bookingService.completeBooking(bookingId)
-        );
+        return ResponseEntity.ok(ApiResponse.ok(bookingService.completeBooking(bookingId)));
     }
 
     @PostMapping("/{bookingId}/confirm-advance")
-    public ResponseEntity<BookingResponseDto> confirmAdvancePayment(
+    public ResponseEntity<ApiResponse<BookingResponseDto>> confirmAdvancePayment(
             @PathVariable Long bookingId) {
 
-        return ResponseEntity.ok(
-                bookingService.confirmAdvancePayment(bookingId)
-        );
+        return ResponseEntity.ok(ApiResponse.ok(bookingService.confirmAdvancePayment(bookingId)));
     }
 }

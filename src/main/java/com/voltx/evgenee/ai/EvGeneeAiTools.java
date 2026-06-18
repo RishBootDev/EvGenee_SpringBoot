@@ -10,7 +10,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Description;
 
 import java.time.*;
 import java.util.*;
@@ -40,6 +39,71 @@ public class EvGeneeAiTools {
     private static int timeToMinutes(String time) {
         String[] parts = time.split(":");
         return Integer.parseInt(parts[0]) * 60 + Integer.parseInt(parts[1]);
+    }
+
+    private static boolean hasText(String value) {
+        return value != null && !value.trim().isEmpty();
+    }
+
+    private static LocalDate resolveDate(String value) {
+        if (!hasText(value) || value.equalsIgnoreCase("today")) {
+            return LocalDate.now(IST);
+        }
+        try {
+            return LocalDate.parse(value.trim());
+        } catch (Exception ignored) {
+            return LocalDate.now(IST);
+        }
+    }
+
+    private static String resolveStartTime(String startTime, LocalDate queryDate) {
+        if (hasText(startTime)) {
+            return startTime.trim();
+        }
+
+        if (queryDate.equals(LocalDate.now(IST))) {
+            LocalTime now = LocalTime.now(IST).plusMinutes(30);
+            int minutes = now.getHour() * 60 + now.getMinute();
+            int rounded = ((minutes + 14) / 15) * 15;
+            if (rounded >= 22 * 60) {
+                return "08:00";
+            }
+            return minutesToTime(rounded);
+        }
+        return "08:00";
+    }
+
+    private static String resolveEndTime(String endTime, String startTime) {
+        if (hasText(endTime)) {
+            return endTime.trim();
+        }
+        return minutesToTime(timeToMinutes(startTime) + 60);
+    }
+
+    private String resolveConnectorType(String connectorType, String userEmail) {
+        if (hasText(connectorType)) {
+            return connectorType.trim();
+        }
+        if (userEmail != null) {
+            Optional<EvUser> euOpt = evUserRepository.findByEmail(userEmail);
+            if (euOpt.isPresent()) {
+                return vehicleRepository.findByOwnerId(euOpt.get().getId()).stream()
+                        .map(Vehicle::getConnectorType)
+                        .filter(EvGeneeAiTools::hasText)
+                        .findFirst()
+                        .orElse("CCS2");
+            }
+        }
+        return "CCS2";
+    }
+
+    private boolean isActiveForAvailability(Booking booking) {
+        if (booking.getStatus() == BookingStatus.CONFIRMED || booking.getStatus() == BookingStatus.IN_PROGRESS) {
+            return true;
+        }
+        return booking.getStatus() == BookingStatus.PENDING
+                && booking.getCreatedAt() != null
+                && booking.getCreatedAt().isAfter(Instant.now().minusSeconds(600));
     }
 
     private static boolean isOverlapping(String startA, String endA, String startB, String endB) {
@@ -162,13 +226,15 @@ public class EvGeneeAiTools {
         if (st.getAddress() != null && st.getAddress().contains(",")) {
             dto.put("city", st.getAddress().split(",")[0].trim());
         }
-        dto.put("isOpen", true);
+        dto.put("isOpen", st.getOpen() == null || st.getOpen());
         
         int ports = st.getChargersCount() != null ? st.getChargersCount() : 4;
+        int availablePorts = st.getAvailablePorts() != null ? st.getAvailablePorts() : ports;
         dto.put("totalPorts", ports);
-        dto.put("availablePorts", ports);
+        dto.put("availablePorts", availablePorts);
         dto.put("chargerTypes", List.of("CCS2", "Type2", "CHAdeMO"));
-        dto.put("chargingSpeed", 50);
+        dto.put("typeOfConnectors", List.of("CCS2", "Type2", "CHAdeMO"));
+        dto.put("chargingSpeed", st.getChargingSpeed() != null ? st.getChargingSpeed() : 50);
 
         List<Map<String, Object>> pricing = new ArrayList<>();
         pricing.add(Map.of("connectorType", "CCS2", "priceperKWh", 15.0, "portCount", ports / 2 + 1, "currency", "INR"));
@@ -179,6 +245,11 @@ public class EvGeneeAiTools {
         dto.put("isCompatible", true);
         dto.put("roadDistance", distKm);
         dto.put("travelTime", travelTimeMins);
+        dto.put("address", st.getAddress());
+        dto.put("location", Map.of(
+                "lat", st.getLatitude() != null ? st.getLatitude() : BhopalLat,
+                "lng", st.getLongitude() != null ? st.getLongitude() : BhopalLon
+        ));
         
         return dto;
     }
@@ -191,8 +262,7 @@ public class EvGeneeAiTools {
         String connectorType
     ) {}
 
-    @Tool
-    @Description("Searches for EV charging stations and checks port availability against active bookings.")
+    @Tool(name = "find_best_station", description = "Searches for EV charging stations and checks port availability against active bookings.")
     public String findBestStation(@ToolParam(description = "input from the user for finding the best station") FindBestStationInput input) {
             try {
                 log.info("Tool find_best_station called with input: {}", input);
@@ -202,7 +272,7 @@ public class EvGeneeAiTools {
                 Double userLng = uCtx != null ? uCtx.lng() : null;
 
                 double[] coords = null;
-                String locationName = input.location();
+                String locationName = input != null ? input.location() : null;
 
                 if (locationName != null && !locationName.trim().isEmpty()) {
                     String clean = locationName.trim();
@@ -251,25 +321,23 @@ public class EvGeneeAiTools {
                     return "{\"error\": \"I couldn't find any charging stations nearby.\" }";
                 }
 
-                LocalDate queryDate = LocalDate.now(IST);
-                if (input.date() != null && !input.date().trim().isEmpty() && !input.date().equalsIgnoreCase("today")) {
-                    try {
-                        queryDate = LocalDate.parse(input.date().trim());
-                    } catch (Exception ignored) {}
-                }
-
-                String effectiveEndTime = (input.endTime() != null && !input.endTime().trim().isEmpty())
-                        ? input.endTime()
-                        : minutesToTime(timeToMinutes(input.startTime()) + 60);
+                LocalDate queryDate = resolveDate(input != null ? input.date() : null);
+                String effectiveStartTime = resolveStartTime(input != null ? input.startTime() : null, queryDate);
+                String effectiveEndTime = resolveEndTime(input != null ? input.endTime() : null, effectiveStartTime);
+                String effectiveConnectorType = resolveConnectorType(input != null ? input.connectorType() : null, userEmail);
 
                 LocalDate today = LocalDate.now(IST);
                 LocalTime nowTime = LocalTime.now(IST);
                 int currentMinutes = nowTime.getHour() * 60 + nowTime.getMinute();
+                boolean missingStartTime = input == null || !hasText(input.startTime());
+                if (missingStartTime && queryDate.equals(today) && timeToMinutes(effectiveStartTime) <= currentMinutes) {
+                    queryDate = queryDate.plusDays(1);
+                }
 
                 if (queryDate.isBefore(today)) {
                     return "{\"error\": \"Cannot search for past dates.\" }";
                 }
-                if (queryDate.equals(today) && timeToMinutes(input.startTime()) <= currentMinutes) {
+                if (queryDate.equals(today) && timeToMinutes(effectiveStartTime) <= currentMinutes) {
                     return "{\"error\": \"The requested start time has already passed for today. Please provide a future time.\" }";
                 }
 
@@ -277,7 +345,7 @@ public class EvGeneeAiTools {
                 GeocodingService.RoadInfo exactRoadInfo = null;
                 List<Map<String, Object>> stationsData = new ArrayList<>();
 
-                int reqDuration = timeToMinutes(effectiveEndTime) - timeToMinutes(input.startTime());
+                int reqDuration = timeToMinutes(effectiveEndTime) - timeToMinutes(effectiveStartTime);
 
                 int limit = Math.min(5, stations.size());
                 for (int i = 0; i < limit; i++) {
@@ -287,29 +355,35 @@ public class EvGeneeAiTools {
                     
                     double roadDist = roadInfo != null ? roadInfo.distanceKm() : dist;
                     double roadTime = roadInfo != null ? roadInfo.durationMins() : (dist * 1.5);
+                    Map<String, Object> sDto = mapStationToDto(st, roadDist, roadTime);
+
+                    if (Boolean.FALSE.equals(st.getOpen())) {
+                        sDto.put("nextAvailableSlot", null);
+                        stationsData.add(sDto);
+                        continue;
+                    }
 
                     List<Booking> stBookings = bookingRepository.findAll();
                     List<Booking> activeBookings = new ArrayList<>();
                     for (Booking b : stBookings) {
-                        if (b.getStation().getId().equals(st.getId()) &&
-                            (b.getStatus() == BookingStatus.CONFIRMED || b.getStatus() == BookingStatus.IN_PROGRESS ||
-                             (b.getStatus() == BookingStatus.PENDING && b.getCreatedAt().isAfter(Instant.now().minusSeconds(600))))) {
+                        if (b.getStation() != null &&
+                            b.getStation().getId().equals(st.getId()) &&
+                            isActiveForAvailability(b)) {
                             activeBookings.add(b);
                         }
                     }
 
                     int maxPorts = st.getChargersCount() != null ? st.getChargersCount() : 4;
-                    AvailabilityResult avResult = checkAvailability(st.getId(), queryDate, input.startTime(), effectiveEndTime, maxPorts, activeBookings);
+                    AvailabilityResult avResult = checkAvailability(st.getId(), queryDate, effectiveStartTime, effectiveEndTime, maxPorts, activeBookings);
 
-                    Map<String, Object> sDto = mapStationToDto(st, roadDist, roadTime);
                     if (avResult.available()) {
                         exactMatchStation = st;
                         exactRoadInfo = roadInfo;
-                        sDto.put("nextAvailableSlot", input.startTime());
+                        sDto.put("nextAvailableSlot", effectiveStartTime);
                         stationsData.add(sDto);
                         break;
                     } else {
-                        String nextSlot = findNextAvailableSlot(st.getId(), queryDate, input.startTime(), reqDuration, maxPorts, "08:00 - 22:00", activeBookings);
+                        String nextSlot = findNextAvailableSlot(st.getId(), queryDate, effectiveStartTime, reqDuration, maxPorts, "08:00 - 22:00", activeBookings);
                         sDto.put("nextAvailableSlot", nextSlot);
                         stationsData.add(sDto);
                     }
@@ -317,12 +391,16 @@ public class EvGeneeAiTools {
 
                 ObjectMapper mapper = new ObjectMapper();
                 if (exactMatchStation != null) {
-                    double distKm = exactRoadInfo != null ? exactRoadInfo.distanceKm() : calculateDistance(finalCoords[1], finalCoords[0], exactMatchStation.getLatitude(), exactMatchStation.getLongitude());
+                    double distKm = exactRoadInfo != null ? exactRoadInfo.distanceKm() : calculateDistance(
+                            finalCoords[1],
+                            finalCoords[0],
+                            exactMatchStation.getLatitude() != null ? exactMatchStation.getLatitude() : BhopalLat,
+                            exactMatchStation.getLongitude() != null ? exactMatchStation.getLongitude() : BhopalLon);
                     double timeMin = exactRoadInfo != null ? exactRoadInfo.durationMins() : distKm * 1.5;
                     String distStr = String.format(" (approx. %.2f KM, %.0f mins away by road)", distKm, timeMin);
                     
                     Map<String, Object> resp = new HashMap<>();
-                    resp.put("text", "Found a great match! " + exactMatchStation.getName() + distStr + " is AVAILABLE from " + input.startTime() + " to " + effectiveEndTime + ".\nWould you like me to book it for you?");
+                    resp.put("text", "Found a great match! " + exactMatchStation.getName() + distStr + " is AVAILABLE from " + effectiveStartTime + " to " + effectiveEndTime + ".\nWould you like me to book it for you?");
                     resp.put("stations", stationsData);
                     resp.put("foundAvailable", true);
                     ToolResultHolder.set(new ToolResultHolder.ToolResult(null, null, stationsData));
@@ -336,18 +414,22 @@ public class EvGeneeAiTools {
 
                 for (int i = 0; i < limit; i++) {
                     Station st = stations.get(i);
+                    if (Boolean.FALSE.equals(st.getOpen())) {
+                        continue;
+                    }
                     int maxPorts = st.getChargersCount() != null ? st.getChargersCount() : 4;
                     
                     List<Booking> stBookings = bookingRepository.findAll();
                     List<Booking> activeBookings = new ArrayList<>();
                     for (Booking b : stBookings) {
-                        if (b.getStation().getId().equals(st.getId()) &&
-                            (b.getStatus() == BookingStatus.CONFIRMED || b.getStatus() == BookingStatus.IN_PROGRESS || b.getStatus() == BookingStatus.PENDING)) {
+                        if (b.getStation() != null &&
+                            b.getStation().getId().equals(st.getId()) &&
+                            isActiveForAvailability(b)) {
                             activeBookings.add(b);
                         }
                     }
 
-                    int startMins = timeToMinutes(input.startTime());
+                    int startMins = timeToMinutes(effectiveStartTime);
                     for (int offset = 60; offset <= 240; offset += 60) {
                         int altStart = startMins + offset;
                         int altEnd = altStart + reqDuration;
@@ -382,7 +464,7 @@ public class EvGeneeAiTools {
                 }
 
                 Map<String, Object> resp = new HashMap<>();
-                resp.put("error", "Sorry, all nearby stations are fully booked for " + input.connectorType() + " connectors around that time.");
+                resp.put("error", "Sorry, all nearby stations are fully booked for " + effectiveConnectorType + " connectors around that time.");
                 resp.put("stations", stationsData);
                 resp.put("foundAvailable", false);
                 ToolResultHolder.set(new ToolResultHolder.ToolResult(null, null, stationsData));
@@ -403,8 +485,7 @@ public class EvGeneeAiTools {
         String connectorType
     ) {}
 
-    @Tool
-    @Description("Creates a formal booking in the system after the user confirms a specific slot and station.")
+    @Tool(name = "create_booking", description = "Creates a formal booking in the system after the user confirms a specific slot and station.")
     public String createBooking(@ToolParam(description = "input for creating the desired booking") CreateBookingInput input) {
 
             try {
@@ -414,6 +495,9 @@ public class EvGeneeAiTools {
 
                 if (userEmail == null) {
                     return "{\"error\": \"User not authenticated.\" }";
+                }
+                if (input == null || !hasText(input.stationId()) || !hasText(input.startTime())) {
+                    return "{\"error\": \"Station and start time are required before creating a booking.\" }";
                 }
 
                 Optional<EvUser> euOpt = evUserRepository.findByEmail(userEmail);
@@ -427,17 +511,14 @@ public class EvGeneeAiTools {
                     return "{\"error\": \"Station not found.\" }";
                 }
                 Station station = stOpt.get();
-
-                String effectiveEndTime = (input.endTime() != null && !input.endTime().trim().isEmpty())
-                        ? input.endTime()
-                        : minutesToTime(timeToMinutes(input.startTime()) + 60);
-
-                LocalDate bookingDate = LocalDate.now(IST);
-                if (input.date() != null && !input.date().trim().isEmpty() && !input.date().equalsIgnoreCase("today")) {
-                    try {
-                        bookingDate = LocalDate.parse(input.date().trim());
-                    } catch (Exception ignored) {}
+                if (Boolean.FALSE.equals(station.getOpen())) {
+                    return "{\"error\": \"This station is currently closed and cannot accept new bookings.\" }";
                 }
+
+                LocalDate bookingDate = resolveDate(input.date());
+                String effectiveStartTime = resolveStartTime(input.startTime(), bookingDate);
+                String effectiveEndTime = resolveEndTime(input.endTime(), effectiveStartTime);
+                String effectiveConnectorType = resolveConnectorType(input.connectorType(), userEmail);
 
                 LocalDate today = LocalDate.now(IST);
                 LocalTime nowTime = LocalTime.now(IST);
@@ -446,11 +527,11 @@ public class EvGeneeAiTools {
                 if (bookingDate.isBefore(today)) {
                     return "{\"error\": \"Cannot book for a past date.\" }";
                 }
-                if (bookingDate.equals(today) && timeToMinutes(input.startTime()) <= currentMinutes) {
+                if (bookingDate.equals(today) && timeToMinutes(effectiveStartTime) <= currentMinutes) {
                     return "{\"error\": \"Cannot book a time slot in the past for today.\" }";
                 }
 
-                int reqStart = timeToMinutes(input.startTime());
+                int reqStart = timeToMinutes(effectiveStartTime);
                 int reqEnd = timeToMinutes(effectiveEndTime);
                 int durationMinutes = reqEnd - reqStart;
 
@@ -464,25 +545,27 @@ public class EvGeneeAiTools {
                 int totalPorts = station.getChargersCount() != null ? station.getChargersCount() : 4;
                 double pricePerKWh = 15.0; // fallback standard price
                 double durationHours = (double) durationMinutes / 60.0;
-                double estimatedKWh = Math.round((50.0 * durationHours) * 100.0) / 100.0; // 50kW charging speed
+                double chargingSpeed = station.getChargingSpeed() != null ? station.getChargingSpeed() : 50.0;
+                double estimatedKWh = Math.round((chargingSpeed * durationHours) * 100.0) / 100.0;
                 double totalCost = Math.round((estimatedKWh * pricePerKWh) * 100.0) / 100.0;
-                double platformFee = Math.round((totalCost * 0.1) * 100.0) / 100.0; // 10% platform fee
+                double configuredPlatformFee = station.getPlatformFee() != null ? station.getPlatformFee() : totalCost * 0.1;
+                double platformFee = Math.round(configuredPlatformFee * 100.0) / 100.0;
                 double grandTotal = Math.round((totalCost + platformFee) * 100.0) / 100.0;
 
-                Instant startInstant = ZonedDateTime.of(bookingDate, LocalTime.parse(input.startTime()), IST).toInstant();
+                Instant startInstant = ZonedDateTime.of(bookingDate, LocalTime.parse(effectiveStartTime), IST).toInstant();
                 Instant endInstant = ZonedDateTime.of(bookingDate, LocalTime.parse(effectiveEndTime), IST).toInstant();
 
                 List<Booking> stBookings = bookingRepository.findAll();
                 List<Booking> activeBookings = new ArrayList<>();
                 for (Booking b : stBookings) {
-                    if (b.getStation().getId().equals(station.getId()) &&
-                        (b.getStatus() == BookingStatus.CONFIRMED || b.getStatus() == BookingStatus.IN_PROGRESS ||
-                         (b.getStatus() == BookingStatus.PENDING && b.getCreatedAt().isAfter(Instant.now().minusSeconds(600))))) {
+                    if (b.getStation() != null &&
+                        b.getStation().getId().equals(station.getId()) &&
+                        isActiveForAvailability(b)) {
                         activeBookings.add(b);
                     }
                 }
 
-                AvailabilityResult avResult = checkAvailability(station.getId(), bookingDate, input.startTime(), effectiveEndTime, totalPorts, activeBookings);
+                AvailabilityResult avResult = checkAvailability(station.getId(), bookingDate, effectiveStartTime, effectiveEndTime, totalPorts, activeBookings);
                 if (!avResult.available()) {
                     return "{\"error\": \"Conflict detected: This slot is no longer available. Please try another time.\" }";
                 }
@@ -499,7 +582,16 @@ public class EvGeneeAiTools {
                         .vehicle(vehicle)
                         .startTime(startInstant)
                         .endTime(endInstant)
+                        .connectorType(effectiveConnectorType)
+                        .vehicleNumber(vehicle != null ? vehicle.getLicensePlate() : null)
+                        .durationMinutes(durationMinutes)
+                        .estimatedKWh(estimatedKWh)
+                        .totalCost(totalCost)
+                        .platformFee(platformFee)
+                        .grandTotal(grandTotal)
                         .status(BookingStatus.PENDING)
+                        .otp(String.valueOf(100000 + new Random().nextInt(900000)))
+                        .otpExpiresAt(startInstant.plus(Duration.ofMinutes(30)))
                         .createdAt(Instant.now())
                         .build();
 

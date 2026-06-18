@@ -27,4 +27,13 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
 
     @Query("SELECT b FROM Booking b JOIN FETCH b.user u JOIN FETCH u.authUser WHERE b.status = 'CONFIRMED' AND b.startTime >= :windowStart AND b.startTime < :windowEnd AND b.reminderSent = false")
     List<Booking> findBookingsForReminder(@Param("windowStart") Instant windowStart, @Param("windowEnd") Instant windowEnd);
+
+    @Query("SELECT b FROM Booking b WHERE b.user.authUser.email = :email ORDER BY b.createdAt DESC")
+    List<Booking> findByUserEmailOrderByCreatedAtDesc(@Param("email") String email);
+
+    @Query("SELECT b FROM Booking b WHERE b.station.id = :stationId ORDER BY b.startTime DESC")
+    List<Booking> findByStationIdOrderByStartTimeDesc(@Param("stationId") Long stationId);
+
+    @Query("SELECT b FROM Booking b WHERE b.station.id = :stationId AND b.startTime < :end AND b.endTime > :start")
+    List<Booking> findOverlappingBookings(@Param("stationId") Long stationId, @Param("end") Instant end, @Param("start") Instant start);
 }

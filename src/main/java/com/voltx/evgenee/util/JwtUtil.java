@@ -19,12 +19,12 @@ public class JwtUtil {
 
 	@Value("${jwt.secret}")
 	private String secret;
-	 
-	 private SecretKey getSigningKey()
-	 {
-		 SecretKey sKey=Keys.hmacShaKeyFor(secret.getBytes());
-		 return sKey;
-	 }
+
+	private SecretKey getSigningKey()
+	{
+		SecretKey sKey=Keys.hmacShaKeyFor(secret.getBytes());
+		return sKey;
+	}
 	 
 	 public String generateToken(String email,List<String> roles)
 	 {
@@ -55,7 +55,7 @@ public class JwtUtil {
 	 public Claims extractClaims(String token)
 	 {
 		 JwtParser parser=Jwts.parserBuilder().setSigningKey(getSigningKey()).build();
-		 Jws<Claims> claimsJws=parser.parseClaimsJws(token); // signature matching,token validation
+		 Jws<Claims> claimsJws=parser.parseClaimsJws(token);
 		 return claimsJws.getBody();
 	 }
 	 public boolean validateToken(String token,String email)

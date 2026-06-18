@@ -15,9 +15,12 @@ import java.time.Instant;
 @AllArgsConstructor
 @Builder
 public class PaymentResponseDto {
-    private Long id;
+    private String id;
+    private String orderId;
+    private String receipt;
     private Long bookingId;
     private BigDecimal amount;
+    private String currency;
     private PaymentMethod method;
     private PaymentStatus status;
     private String transactionId;

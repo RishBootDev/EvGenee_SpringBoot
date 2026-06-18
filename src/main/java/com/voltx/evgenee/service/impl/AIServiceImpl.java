@@ -1,6 +1,7 @@
 package com.voltx.evgenee.service.impl;
 
 import com.voltx.evgenee.client.GeocodingService;
+import com.voltx.evgenee.ai.EvGeneeAiTools;
 import com.voltx.evgenee.ai.ToolResultHolder;
 import com.voltx.evgenee.ai.UserContextHolder;
 import com.voltx.evgenee.dto.common.DataPayLoad;
@@ -27,6 +28,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 @Service
 @Slf4j
@@ -46,8 +48,10 @@ public class AIServiceImpl implements AIService {
                           UserRepository userRepository,
                           EvUserRepository evUserRepository,
                           VehicleRepository vehicleRepository,
-                          GeocodingService geocodingService) {
+                          GeocodingService geocodingService,
+                          EvGeneeAiTools evGeneeAiTools) {
         this.chatClient = chatClientBuilder
+                .defaultToolNames("checkAvailability", "findNextAvailableSlot")
                 .build();
         this.chatMessageRepository = chatMessageRepository;
         this.userRepository = userRepository;
@@ -55,6 +59,7 @@ public class AIServiceImpl implements AIService {
         this.vehicleRepository = vehicleRepository;
         this.geocodingService = geocodingService;
     }
+
 
     private String getSystemPrompt(EvUser user, Double latitude, Double longitude) {
         StringBuilder profileInfo = new StringBuilder();
@@ -64,9 +69,12 @@ public class AIServiceImpl implements AIService {
             if (!vehicles.isEmpty()) {
                 profileInfo.append("- Saved Vehicles:\n");
                 for (Vehicle v : vehicles) {
+                    String connectorType = v.getConnectorType() != null && !v.getConnectorType().isBlank()
+                            ? v.getConnectorType()
+                            : "unspecified";
                     profileInfo.append("  * ").append(v.getModel()).append(": ")
                             .append(v.getType() != null ? v.getType().toString() : "EV")
-                            .append(" with CCS2 connector (Number: ")
+                            .append(" with ").append(connectorType).append(" connector (Number: ")
                             .append(v.getLicensePlate() != null && !v.getLicensePlate().isEmpty() ? v.getLicensePlate() : "N/A")
                             .append(")\n");
                 }
@@ -117,6 +125,14 @@ public class AIServiceImpl implements AIService {
     public AiChatResponse processVoiceChat(String message, String threadId, String userEmail, Double latitude, Double longitude) {
         log.info("Processing voice chat message: '{}', threadId: '{}', email: '{}'", message, threadId, userEmail);
 
+        String effectiveMessage = message != null ? message.trim() : "";
+        if (effectiveMessage.isBlank()) {
+            throw new IllegalArgumentException("Message cannot be blank");
+        }
+        String effectiveThreadId = threadId != null && !threadId.isBlank()
+                ? threadId
+                : UUID.randomUUID().toString();
+
         UserContextHolder.set(new UserContextHolder.UserContext(userEmail, latitude, longitude));
         ToolResultHolder.clear();
         try {
@@ -134,15 +150,15 @@ public class AIServiceImpl implements AIService {
             }
 
             ChatMessage userMsg = ChatMessage.builder()
-                    .threadId(threadId)
+                    .threadId(effectiveThreadId)
                     .userId(userId)
                     .role("user")
-                    .content(message)
+                    .content(effectiveMessage)
                     .createdAt(Instant.now())
                     .build();
             chatMessageRepository.save(userMsg);
 
-            List<ChatMessage> history = chatMessageRepository.findTop30ByThreadIdOrderByCreatedAtDesc(threadId);
+            List<ChatMessage> history = chatMessageRepository.findTop30ByThreadIdOrderByCreatedAtDesc(effectiveThreadId);
             Collections.reverse(history);
 
             List<Message> springAiMessages = new ArrayList<>();
@@ -157,13 +173,12 @@ public class AIServiceImpl implements AIService {
             String systemPrompt = getSystemPrompt(evUser, latitude, longitude);
             String aiResponse = chatClient.prompt()
                     .system(systemPrompt)
-                    .tools()
                     .messages(springAiMessages)
                     .call()
                     .content();
 
             ChatMessage aiMsg = ChatMessage.builder()
-                    .threadId(threadId)
+                    .threadId(effectiveThreadId)
                     .userId(userId)
                     .role("ai")
                     .content(aiResponse != null ? aiResponse : "")
@@ -175,7 +190,7 @@ public class AIServiceImpl implements AIService {
 
             DataPayLoad dataBuilder = DataPayLoad.builder()
                     .response(aiResponse)
-                    .threadId(threadId)
+                    .threadId(effectiveThreadId)
                     .build();
 
             if (toolResult != null) {

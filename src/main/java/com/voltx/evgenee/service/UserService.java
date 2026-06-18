@@ -7,7 +7,7 @@ import com.voltx.evgenee.dto.responses.UserResponseDto;
 
 public interface UserService {
 
-    UserResponseDto register(UserRequestDto requestDto);
+    LoginResponse register(UserRequestDto requestDto);
 
     LoginResponse login(LoginRequest request);
 

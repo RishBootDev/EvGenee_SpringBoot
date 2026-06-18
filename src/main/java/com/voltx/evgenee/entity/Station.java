@@ -24,6 +24,45 @@ public class Station {
     private Double latitude;
     private Double longitude;
     private Integer chargersCount;
+    private Integer availablePorts;
+    private Integer chargingSpeed;
+    private Double platformFee;
+    @Column(name = "is_open")
+    private Boolean open;
+    private String openingHours;
+    private String status;
+    private String operator;
+    private String contactPhone;
+    private String contactEmail;
+    private String ownerName;
+
+    @Lob
+    @Column(columnDefinition = "TEXT")
+    private String addressJson;
+
+    @Lob
+    @Column(columnDefinition = "TEXT")
+    private String amenitiesJson;
+
+    @Lob
+    @Column(columnDefinition = "TEXT")
+    private String connectorsJson;
+
+    @Lob
+    @Column(columnDefinition = "TEXT")
+    private String pricingJson;
+
+    @Lob
+    @Column(columnDefinition = "TEXT")
+    private String imagesJson;
+
+    @Lob
+    @Column(columnDefinition = "TEXT")
+    private String mechanicJson;
+
+    @Lob
+    @Column(columnDefinition = "TEXT")
+    private String peakPricingJson;
 
     @ManyToOne
     @JoinColumn(name = "owner_id")

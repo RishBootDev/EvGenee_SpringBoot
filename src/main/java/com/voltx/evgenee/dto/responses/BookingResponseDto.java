@@ -10,7 +10,7 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 @Builder
 public class BookingResponseDto {
-    private String id;
+    private Long id;
     private String _id;
     private Object user;
     private Object station;
@@ -24,6 +24,7 @@ public class BookingResponseDto {
     private Double platformFee;
     private Double grandTotal;
     private String vehicleNumber;
+    private String otp;
     private String status;
     private String cancelledAt;
     private String cancellationReason;

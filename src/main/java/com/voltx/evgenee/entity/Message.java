@@ -36,5 +36,6 @@ public class Message {
     private MessageRole role;
 
     private Instant sentAt;
+    @Builder.Default
     private boolean readFlag = false;
 }
