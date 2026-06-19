@@ -10,11 +10,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.stereotype.Component;
 
 import java.time.*;
 import java.util.*;
 
-@Configuration
+@Component
 @Slf4j
 @RequiredArgsConstructor
 public class EvGeneeAiTools {

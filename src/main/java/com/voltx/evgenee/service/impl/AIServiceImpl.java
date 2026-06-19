@@ -51,7 +51,7 @@ public class AIServiceImpl implements AIService {
                           GeocodingService geocodingService,
                           EvGeneeAiTools evGeneeAiTools) {
         this.chatClient = chatClientBuilder
-                .defaultToolNames("checkAvailability", "findNextAvailableSlot")
+                .defaultTools(evGeneeAiTools)
                 .build();
         this.chatMessageRepository = chatMessageRepository;
         this.userRepository = userRepository;
