@@ -5,6 +5,8 @@ import com.voltx.evgenee.enums.Role;
 import jakarta.persistence.*;
 import lombok.*;
 
+import java.time.Instant;
+
 @Entity
 @Data
 @AllArgsConstructor
@@ -20,5 +22,8 @@ public class User {
 
     @Enumerated(EnumType.STRING)
     private Role role;
+
+    private String resetPasswordOtp;
+    private Instant resetPasswordExpires;
 
 }

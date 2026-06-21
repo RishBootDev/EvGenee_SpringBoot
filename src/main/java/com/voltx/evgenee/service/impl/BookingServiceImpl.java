@@ -13,6 +13,7 @@ import com.voltx.evgenee.repository.BookingRepository;
 import com.voltx.evgenee.repository.EvUserRepository;
 import com.voltx.evgenee.repository.StationRepository;
 import com.voltx.evgenee.repository.VehicleRepository;
+import com.voltx.evgenee.notification.EmailNotificationPublisher;
 import com.voltx.evgenee.service.BookingService;
 import com.voltx.evgenee.service.StationService;
 import com.voltx.evgenee.socket.RealtimeNotificationService;
@@ -41,6 +42,7 @@ public class BookingServiceImpl implements BookingService {
     private final VehicleRepository vehicleRepository;
     private final StationService stationService;
     private final RealtimeNotificationService realtimeNotificationService;
+    private final EmailNotificationPublisher emailNotifications;
 
     @Override
     public BookingResponseDto validateBooking(BookingRequestDto requestDto) {
@@ -62,6 +64,7 @@ public class BookingServiceImpl implements BookingService {
         booking.setOtp(generateOtp());
         booking.setOtpExpiresAt(draft.start().plus(Duration.ofMinutes(30)));
         Booking saved = bookingRepository.save(booking);
+        emailNotifications.bookingConfirmed(saved);
         notifyCreated(saved);
         return toResponse(saved);
     }
@@ -120,6 +123,7 @@ public class BookingServiceImpl implements BookingService {
         booking.setCancelledAt(Instant.now());
         booking.setCancellationReason(reason);
         Booking saved = bookingRepository.save(booking);
+        emailNotifications.bookingCancelled(saved);
         notifyCancelled(saved);
         return toResponse(saved);
     }
@@ -164,6 +168,7 @@ public class BookingServiceImpl implements BookingService {
         }
         booking.setStatus(BookingStatus.CONFIRMED);
         Booking saved = bookingRepository.save(booking);
+        emailNotifications.bookingConfirmed(saved);
         notifyCapacity(saved);
         return toResponse(saved);
     }

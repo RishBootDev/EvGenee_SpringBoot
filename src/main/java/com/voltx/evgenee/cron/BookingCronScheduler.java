@@ -2,9 +2,8 @@ package com.voltx.evgenee.cron;
 
 import com.voltx.evgenee.entity.Booking;
 import com.voltx.evgenee.entity.EvUser;
-import com.voltx.evgenee.entity.Vehicle;
 import com.voltx.evgenee.repository.BookingRepository;
-import com.voltx.evgenee.service.EmailService;
+import com.voltx.evgenee.notification.EmailNotificationPublisher;
 import com.voltx.evgenee.socket.RealtimeNotificationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -25,7 +24,7 @@ import java.util.List;
 public class BookingCronScheduler {
 
     private final BookingRepository bookingRepository;
-    private final EmailService emailService;
+    private final EmailNotificationPublisher emailNotifications;
     private final RealtimeNotificationService realtimeNotificationService;
 
     private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
@@ -99,26 +98,15 @@ public class BookingCronScheduler {
                     if (evUser == null || evUser.getAuthUser() == null) continue;
 
                     String userEmail = evUser.getAuthUser().getEmail();
-                    String userName = evUser.getFullName();
-
-                    Vehicle vehicle = booking.getVehicle();
-                    String vehicleNumber = (vehicle != null) ? vehicle.getLicensePlate() : null;
-
                     String startTimeStr = ZonedDateTime.ofInstant(booking.getStartTime(), IST).format(TIME_FMT);
-
-                    emailService.sendEmail(
-                            userEmail,
-                            "Session Reminder | EvGenee",
-                            "Almost Time to Charge",
-                            emailService.buildReminderEmailContent(userName, startTimeStr, vehicleNumber)
-                    );
-
-                    realtimeNotificationService.notifyBookingReminder(userEmail, booking.getId().toString(), startTimeStr);
-
-                    log.info("[CRON] Reminder sent to {} for session at {}", userEmail, startTimeStr);
 
                     booking.setReminderSent(true);
                     bookingRepository.save(booking);
+                    emailNotifications.bookingReminder(booking);
+
+                    realtimeNotificationService.notifyBookingReminder(userEmail, booking.getId().toString(), startTimeStr);
+
+                    log.info("[CRON] Reminder queued for {} for session at {}", userEmail, startTimeStr);
 
                 } catch (Exception e) {
                     log.error("[CRON] Failed to send reminder for booking {}: {}", booking.getId(), e.getMessage());

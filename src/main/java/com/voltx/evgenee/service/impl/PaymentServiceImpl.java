@@ -14,6 +14,7 @@ import com.voltx.evgenee.exceptions.BadRequestException;
 import com.voltx.evgenee.exceptions.ResourceNotFoundException;
 import com.voltx.evgenee.repository.BookingRepository;
 import com.voltx.evgenee.repository.PaymentRepository;
+import com.voltx.evgenee.notification.EmailNotificationPublisher;
 import com.voltx.evgenee.service.PaymentService;
 import lombok.RequiredArgsConstructor;
 import org.json.JSONObject;
@@ -35,6 +36,7 @@ public class PaymentServiceImpl implements PaymentService {
     private final PaymentRepository paymentRepository;
     private final BookingRepository bookingRepository;
     private final ObjectProvider<RazorpayClient> razorpayClientProvider;
+    private final EmailNotificationPublisher emailNotifications;
 
     @Value("${razorpay.key.secret:}")
     private String razorpayKeySecret;
@@ -136,7 +138,8 @@ public class PaymentServiceImpl implements PaymentService {
 
         if (paidAmount.compareTo(expectedAdvance) == 0) {
             booking.setStatus(BookingStatus.CONFIRMED);
-            bookingRepository.save(booking);
+            Booking confirmed = bookingRepository.save(booking);
+            emailNotifications.bookingConfirmed(confirmed);
         }
     }
     private Order createRazorpayOrder(int amountInPaise, String currency, String receipt, Booking booking) {

@@ -6,6 +6,8 @@ import com.voltx.evgenee.entity.RoadsideRequest;
 import com.voltx.evgenee.exceptions.BadRequestException;
 import com.voltx.evgenee.exceptions.ResourceNotFoundException;
 import com.voltx.evgenee.repository.RoadsideRequestRepository;
+import com.voltx.evgenee.repository.EvUserRepository;
+import com.voltx.evgenee.notification.EmailNotificationPublisher;
 import com.voltx.evgenee.service.RoadsideService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -21,6 +23,8 @@ import java.util.Map;
 public class RoadSideImpl implements RoadsideService {
 
     private final RoadsideRequestRepository roadsideRequestRepository;
+    private final EvUserRepository evUserRepository;
+    private final EmailNotificationPublisher emailNotifications;
 
     private static final Map<String, String> ISSUE_LABELS = Map.of(
             "flat_tire", "Flat tire",
@@ -65,7 +69,12 @@ public class RoadSideImpl implements RoadsideService {
                 .mechanicRating(mechanic.getRating())
                 .mechanicSpeciality(mechanic.getSpeciality())
                 .build();
-        return toResponse(roadsideRequestRepository.save(request));
+        RoadsideRequest saved = roadsideRequestRepository.save(request);
+        String userName = evUserRepository.findByEmail(saved.getUserEmail())
+                .map(user -> user.getFullName())
+                .orElse("Driver");
+        emailNotifications.roadsideDispatched(saved, userName);
+        return toResponse(saved);
     }
 
     @Override

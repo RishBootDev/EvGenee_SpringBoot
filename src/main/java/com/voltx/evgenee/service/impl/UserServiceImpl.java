@@ -18,6 +18,7 @@ import com.voltx.evgenee.repository.EvUserRepository;
 import com.voltx.evgenee.repository.StationOwnerRepository;
 import com.voltx.evgenee.repository.UserRepository;
 import com.voltx.evgenee.repository.VehicleRepository;
+import com.voltx.evgenee.notification.EmailNotificationPublisher;
 import com.voltx.evgenee.service.UserService;
 import com.voltx.evgenee.util.JwtUtil;
 import lombok.RequiredArgsConstructor;
@@ -25,6 +26,9 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.security.SecureRandom;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -33,12 +37,15 @@ import java.util.Locale;
 @RequiredArgsConstructor
 public class UserServiceImpl implements UserService {
 
+    private static final SecureRandom OTP_RANDOM = new SecureRandom();
+
     private final UserRepository userRepository;
     private final EvUserRepository evUserRepository;
     private final StationOwnerRepository stationOwnerRepository;
     private final VehicleRepository vehicleRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
+    private final EmailNotificationPublisher emailNotifications;
 
     @Override
     @Transactional
@@ -130,20 +137,52 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
+    @Transactional
     public void forgotPassword(String email) {
-    }
-
-    @Override
-    public boolean verifyOTP(String email, String otp) {
-        return true;
-    }
-
-    @Override
-    public void resetPassword(String email, String otp, String password) {
+        if (email == null || email.isBlank()) {
+            throw new BadRequestException("Email is required");
+        }
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found: " + email));
-        user.setPassword(passwordEncoder.encode(password));
+        String otp = String.valueOf(100000 + OTP_RANDOM.nextInt(900000));
+        user.setResetPasswordOtp(otp);
+        user.setResetPasswordExpires(Instant.now().plus(Duration.ofMinutes(10)));
         userRepository.save(user);
+        emailNotifications.passwordResetOtp(user.getEmail(), otp);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public boolean verifyOTP(String email, String otp) {
+        User user = validOtpUser(email, otp);
+        return user.getResetPasswordExpires().isAfter(Instant.now());
+    }
+
+    @Override
+    @Transactional
+    public void resetPassword(String email, String otp, String password) {
+        if (password == null || password.isBlank()) {
+            throw new BadRequestException("New password is required");
+        }
+        User user = validOtpUser(email, otp);
+        user.setPassword(passwordEncoder.encode(password));
+        user.setResetPasswordOtp(null);
+        user.setResetPasswordExpires(null);
+        userRepository.save(user);
+    }
+
+    private User validOtpUser(String email, String otp) {
+        if (email == null || email.isBlank() || otp == null || otp.isBlank()) {
+            throw new BadRequestException("Email and OTP are required");
+        }
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found: " + email));
+        if (!otp.equals(user.getResetPasswordOtp())
+                || user.getResetPasswordExpires() == null
+                || !user.getResetPasswordExpires().isAfter(Instant.now())) {
+            throw new BadRequestException("Invalid or expired OTP");
+        }
+        return user;
     }
 
     private UserResponseDto toResponse(User user) {
