@@ -81,6 +81,7 @@ public class WebSocketEventController {
             Map<String, Object> error = new HashMap<>();
             error.put("success", false);
             error.put("error", "Failed to process chat: " + e.getMessage());
+            assert sessionId != null;
             messagingTemplate.convertAndSendToUser(sessionId, "/queue/ai/voice_response", error);
         }
     }
