@@ -70,6 +70,9 @@ public class WebSocketEventController {
             if (aiResult.getData().getStations() != null) {
                 response.put("stations", aiResult.getData().getStations());
             }
+            if (aiResult.getData().getCheckout() != null) {
+                response.put("checkout", aiResult.getData().getCheckout());
+            }
 
             messagingTemplate.convertAndSendToUser(userEmail, "/queue/ai/voice_response", response);
 

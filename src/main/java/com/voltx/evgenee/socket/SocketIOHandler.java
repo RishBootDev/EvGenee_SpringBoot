@@ -113,6 +113,9 @@ public class SocketIOHandler {
             if (aiResult.getData().getStations() != null) {
                 response.put("stations", aiResult.getData().getStations());
             }
+            if (aiResult.getData().getCheckout() != null) {
+                response.put("checkout", aiResult.getData().getCheckout());
+            }
             client.sendEvent("ai:voice_response", response);
         } catch (Exception e) {
             log.error("Error processing Socket.IO voice chat", e);

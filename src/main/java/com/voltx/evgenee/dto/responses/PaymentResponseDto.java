@@ -15,6 +15,7 @@ import java.time.Instant;
 @AllArgsConstructor
 @Builder
 public class PaymentResponseDto {
+    private String keyId;
     private String id;
     private String orderId;
     private String receipt;

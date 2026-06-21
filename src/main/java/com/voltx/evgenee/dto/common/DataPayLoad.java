@@ -1,5 +1,7 @@
 package com.voltx.evgenee.dto.common;
 
+import com.voltx.evgenee.dto.responses.RazorpayCheckoutDto;
+
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -15,4 +17,5 @@ public class DataPayLoad {
     private String bookingId;
     private Boolean redirect;
     private Object stations;
+    private RazorpayCheckoutDto checkout;
 }

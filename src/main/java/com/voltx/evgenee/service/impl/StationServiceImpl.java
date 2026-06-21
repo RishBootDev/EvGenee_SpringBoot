@@ -58,7 +58,6 @@ public class StationServiceImpl implements StationService {
                 .sorted(Comparator.comparing(s -> s.getDistanceKm() == null ? Double.MAX_VALUE : s.getDistanceKm()))
                 .toList();
 
-        for(StationResponseDto dto : list) System.out.println(dto);
         return list;
     }
 

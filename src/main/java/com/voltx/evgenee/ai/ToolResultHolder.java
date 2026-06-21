@@ -1,5 +1,7 @@
 package com.voltx.evgenee.ai;
 
+import com.voltx.evgenee.dto.responses.RazorpayCheckoutDto;
+
 public class ToolResultHolder {
 
     private static final ThreadLocal<ToolResult> RESULT = new ThreadLocal<>();
@@ -16,5 +18,9 @@ public class ToolResultHolder {
         RESULT.remove();
     }
 
-    public record ToolResult(String bookingId, Boolean redirect, Object stations) {}
+    public record ToolResult(String bookingId, Boolean redirect, Object stations, RazorpayCheckoutDto checkout) {
+        public ToolResult(String bookingId, Boolean redirect, Object stations) {
+            this(bookingId, redirect, stations, null);
+        }
+    }
 }

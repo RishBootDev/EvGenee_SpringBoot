@@ -7,6 +7,7 @@ import com.voltx.evgenee.dto.requests.PaymentRequestDto;
 import com.voltx.evgenee.dto.responses.PaymentResponseDto;
 import com.voltx.evgenee.entity.Booking;
 import com.voltx.evgenee.entity.Payment;
+import com.voltx.evgenee.enums.BookingStatus;
 import com.voltx.evgenee.enums.PaymentMethod;
 import com.voltx.evgenee.enums.PaymentStatus;
 import com.voltx.evgenee.exceptions.BadRequestException;
@@ -37,6 +38,9 @@ public class PaymentServiceImpl implements PaymentService {
 
     @Value("${razorpay.key.secret:}")
     private String razorpayKeySecret;
+
+    @Value("${razorpay.key.id:}")
+    private String razorpayKeyId;
 
     @Override
     @Transactional
@@ -112,9 +116,29 @@ public class PaymentServiceImpl implements PaymentService {
         if (!verified) {
             throw new BadRequestException("Razorpay payment verification failed");
         }
+
+        confirmLinkedAdvanceBooking(saved);
         return toResponse(saved);
     }
 
+    private void confirmLinkedAdvanceBooking(Payment payment) {
+        Booking booking = payment.getBooking();
+        if (booking == null || booking.getStatus() != BookingStatus.PENDING || booking.getGrandTotal() == null) {
+            return;
+        }
+
+        BigDecimal expectedAdvance = BigDecimal.valueOf(booking.getGrandTotal())
+                .multiply(BigDecimal.valueOf(0.20))
+                .setScale(2, RoundingMode.HALF_UP);
+        BigDecimal paidAmount = payment.getAmount() != null
+                ? payment.getAmount().setScale(2, RoundingMode.HALF_UP)
+                : BigDecimal.ZERO;
+
+        if (paidAmount.compareTo(expectedAdvance) == 0) {
+            booking.setStatus(BookingStatus.CONFIRMED);
+            bookingRepository.save(booking);
+        }
+    }
     private Order createRazorpayOrder(int amountInPaise, String currency, String receipt, Booking booking) {
         try {
             RazorpayClient razorpayClient = razorpayClient();
@@ -179,6 +203,7 @@ public class PaymentServiceImpl implements PaymentService {
 
     private PaymentResponseDto toOrderResponse(Payment payment, int amountInPaise) {
         return PaymentResponseDto.builder()
+                .keyId(razorpayKeyId)
                 .id(payment.getOrderId())
                 .orderId(payment.getOrderId())
                 .receipt(payment.getReceipt())
@@ -194,6 +219,7 @@ public class PaymentServiceImpl implements PaymentService {
 
     private PaymentResponseDto toResponse(Payment payment) {
         return PaymentResponseDto.builder()
+                .keyId(razorpayKeyId)
                 .id(String.valueOf(payment.getId()))
                 .orderId(payment.getOrderId())
                 .receipt(payment.getReceipt())
