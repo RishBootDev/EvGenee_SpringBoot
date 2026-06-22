@@ -4,6 +4,7 @@ import com.voltx.evgenee.dto.requests.AiChatRequest;
 import com.voltx.evgenee.dto.responses.AiChatResponse;
 import com.voltx.evgenee.service.AIService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
