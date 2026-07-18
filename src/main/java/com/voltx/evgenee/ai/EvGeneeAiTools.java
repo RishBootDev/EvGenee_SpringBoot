@@ -9,6 +9,9 @@ import com.voltx.evgenee.dto.responses.PaymentResponseDto;
 import com.voltx.evgenee.dto.responses.RazorpayCheckoutDto;
 import com.voltx.evgenee.entity.*;
 import com.voltx.evgenee.enums.BookingStatus;
+import com.voltx.evgenee.enums.ConnectorType;
+import com.voltx.evgenee.enums.CurrencyCode;
+import com.voltx.evgenee.enums.StationStatus;
 import com.voltx.evgenee.repository.*;
 import com.voltx.evgenee.service.PaymentService;
 import lombok.RequiredArgsConstructor;
@@ -110,10 +113,10 @@ public class EvGeneeAiTools {
     }
 
     private String connectorFor(Vehicle vehicle) {
-        if (!hasText(vehicle.getConnectorType())) {
+        if (vehicle.getConnectorType() == null) {
             throw new IllegalArgumentException("The selected vehicle has no connector type configured.");
         }
-        return vehicle.getConnectorType().trim();
+        return vehicle.getConnectorType().name();
     }
 
     private List<Booking> activeBookingsForStation(Long stationId, LocalDate date, String connectorType) {
@@ -291,10 +294,10 @@ public class EvGeneeAiTools {
     private List<PricingDto> stationPricing(Station station) {
         int ports = station.getChargersCount() != null ? station.getChargersCount() : 4;
         List<PricingDto> fallback = List.of(
-                PricingDto.builder().connectorType("CCS2").priceperKWh(15.0)
-                        .portCount(Math.max(1, ports / 2)).currency("INR").build(),
-                PricingDto.builder().connectorType("Type2").priceperKWh(12.0)
-                        .portCount(Math.max(1, ports / 2)).currency("INR").build());
+                PricingDto.builder().connectorType(ConnectorType.CCS2).priceperKWh(15.0)
+                        .portCount(Math.max(1, ports / 2)).currency(CurrencyCode.INR).build(),
+                PricingDto.builder().connectorType(ConnectorType.TYPE2).priceperKWh(12.0)
+                        .portCount(Math.max(1, ports / 2)).currency(CurrencyCode.INR).build());
         if (!hasText(station.getPricingJson())) return fallback;
         try {
             List<PricingDto> parsed = objectMapper.readValue(
@@ -309,24 +312,33 @@ public class EvGeneeAiTools {
     private List<String> stationConnectors(Station station, List<PricingDto> pricing) {
         List<String> fallback = pricing.stream()
                 .map(PricingDto::getConnectorType)
+                .map(EvGeneeAiTools::connectorValue)
                 .filter(EvGeneeAiTools::hasText)
                 .distinct()
                 .toList();
         if (!hasText(station.getConnectorsJson())) return fallback;
         try {
-            List<String> parsed = objectMapper.readValue(
-                    station.getConnectorsJson(), new TypeReference<List<String>>() {});
-            return parsed == null || parsed.isEmpty() ? fallback : parsed;
+            List<ConnectorType> parsed = objectMapper.readValue(
+                    station.getConnectorsJson(), new TypeReference<List<ConnectorType>>() {});
+            return parsed == null || parsed.isEmpty()
+                    ? fallback
+                    : parsed.stream().map(EvGeneeAiTools::connectorValue).filter(EvGeneeAiTools::hasText).distinct().toList();
         } catch (Exception e) {
             log.warn("Invalid connector JSON for station {}: {}", station.getId(), e.getMessage());
             return fallback;
         }
     }
 
-    private boolean sameConnector(String first, String second) {
-        String left = first == null ? "" : first.replaceAll("[^A-Za-z0-9]", "").toUpperCase(Locale.ROOT);
-        String right = second == null ? "" : second.replaceAll("[^A-Za-z0-9]", "").toUpperCase(Locale.ROOT);
+    private boolean sameConnector(Object first, Object second) {
+        String left = connectorValue(first).replaceAll("[^A-Za-z0-9]", "").toUpperCase(Locale.ROOT);
+        String right = connectorValue(second).replaceAll("[^A-Za-z0-9]", "").toUpperCase(Locale.ROOT);
         return left.equals(right);
+    }
+
+    private static String connectorValue(Object value) {
+        if (value == null) return "";
+        if (value instanceof ConnectorType connectorType) return connectorType.name();
+        return String.valueOf(value);
     }
 
     private int connectorCapacity(Station station, String connector, List<String> connectors, List<PricingDto> pricing) {
@@ -506,9 +518,7 @@ public class EvGeneeAiTools {
                         continue;
                     }
 
-                    if (Boolean.FALSE.equals(st.getOpen()) ||
-                            "inactive".equalsIgnoreCase(st.getStatus()) ||
-                            "suspended".equalsIgnoreCase(st.getStatus())) {
+                    if (Boolean.FALSE.equals(st.getOpen()) || st.getStatus() == StationStatus.INACTIVE) {
                         sDto.put("nextAvailableSlot", null);
                         addStationResult(stationsData, sDto, false);
                         continue;
@@ -573,9 +583,7 @@ public class EvGeneeAiTools {
 
                 for (int i = 0; i < limit; i++) {
                     Station st = stations.get(i);
-                    if (Boolean.FALSE.equals(st.getOpen()) ||
-                            "inactive".equalsIgnoreCase(st.getStatus()) ||
-                            "suspended".equalsIgnoreCase(st.getStatus())) {
+                    if (Boolean.FALSE.equals(st.getOpen()) || st.getStatus() == StationStatus.INACTIVE) {
                         continue;
                     }
                     List<PricingDto> altPricing = stationPricing(st);
@@ -701,9 +709,7 @@ public class EvGeneeAiTools {
                     return "{\"error\": \"Station not found.\" }";
                 }
                 Station station = stOpt.get();
-                if (Boolean.FALSE.equals(station.getOpen()) ||
-                        "inactive".equalsIgnoreCase(station.getStatus()) ||
-                        "suspended".equalsIgnoreCase(station.getStatus())) {
+                if (Boolean.FALSE.equals(station.getOpen()) || station.getStatus() == StationStatus.INACTIVE) {
                     return "{\"error\": \"This station is currently closed and cannot accept new bookings.\" }";
                 }
 
@@ -776,7 +782,7 @@ public class EvGeneeAiTools {
                         .vehicle(vehicle)
                         .startTime(startInstant)
                         .endTime(endInstant)
-                        .connectorType(effectiveConnectorType)
+                        .connectorType(connectorType(effectiveConnectorType))
                         .vehicleNumber(vehicle != null ? vehicle.getLicensePlate() : null)
                         .durationMinutes(durationMinutes)
                         .estimatedKWh(estimatedKWh)
@@ -799,8 +805,8 @@ public class EvGeneeAiTools {
                     order = paymentService.createOrder(PaymentRequestDto.builder()
                             .bookingId(booking.getId())
                             .amount(advanceAmount)
-                            .currency(connectorPricing != null && hasText(connectorPricing.getCurrency())
-                                    ? connectorPricing.getCurrency() : "INR")
+                            .currency(connectorPricing != null && connectorPricing.getCurrency() != null
+                                    ? connectorPricing.getCurrency() : CurrencyCode.INR)
                             .build());
                 } catch (Exception paymentError) {
                     bookingRepository.delete(booking);
@@ -830,5 +836,14 @@ public class EvGeneeAiTools {
                 log.error("Error in createBooking tool", e);
                 return error("I could not create the booking or start payment. Please try again.");
             }
+    }
+
+    private ConnectorType connectorType(String connectorType) {
+        if (connectorType == null || connectorType.isBlank()) return ConnectorType.CCS2;
+        try {
+            return ConnectorType.valueOf(connectorType.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException ignored) {
+            return ConnectorType.CCS2;
+        }
     }
 }

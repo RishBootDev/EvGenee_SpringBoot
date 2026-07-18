@@ -42,6 +42,12 @@ public class RealtimeNotificationService {
         log.info("[WS] Broadcast '{}' to all clients", event);
     }
 
+    public void emitToAdmin(String event, Object payload) {
+        messagingTemplate.convertAndSend("/topic/admin/" + event, payload);
+        socketIOServer.getRoomOperations("admin").sendEvent(event, payload);
+        log.info("[WS] Emitted '{}' to admin portal", event);
+    }
+
     public void notifyBookingCreated(String stationId, String userEmail, String bookingId,
                                      String connectorType, String startTime, String endTime, String date) {
         SocketPayload stationPayload = SocketPayload.builder()
@@ -166,5 +172,38 @@ public class RealtimeNotificationService {
                 .timestamp(Instant.now().toString())
                 .build();
         emitToAll("bookings:autoCompleted", payload);
+    }
+
+    public void notifyRoadsideAssistanceCreated(Object request) {
+        SocketPayload payload = SocketPayload.builder()
+                .type("roadside_assistance")
+                .message("New roadside assistance request awaiting support approval")
+                .data(request)
+                .timestamp(Instant.now().toString())
+                .build();
+        emitToAdmin("roadside:created", payload);
+    }
+
+    public void notifyStationRoadsideAssistanceCreated(String stationId, Object request) {
+        SocketPayload payload = SocketPayload.builder()
+                .type("roadside_assistance")
+                .message("New roadside assistance request awaiting station approval")
+                .data(request)
+                .timestamp(Instant.now().toString())
+                .build();
+        emitToStation(stationId, "roadside:created", payload);
+    }
+
+    public void notifyRoadsideAssistanceUpdated(String stationId, Object request) {
+        SocketPayload payload = SocketPayload.builder()
+                .type("roadside_assistance")
+                .message("Roadside assistance request updated")
+                .data(request)
+                .timestamp(Instant.now().toString())
+                .build();
+        emitToAdmin("roadside:updated", payload);
+        if (stationId != null && !stationId.isBlank()) {
+            emitToStation(stationId, "roadside:updated", payload);
+        }
     }
 }

@@ -1,5 +1,6 @@
 package com.voltx.evgenee.entity;
 
+import com.voltx.evgenee.enums.ConnectorType;
 import com.voltx.evgenee.enums.VehicleType;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
@@ -20,7 +21,8 @@ public class Vehicle {
 
     private String model;
     private String licensePlate;
-    private String connectorType;
+    @Enumerated(EnumType.STRING)
+    private ConnectorType connectorType;
 
     @Enumerated(EnumType.STRING)
     private VehicleType type;

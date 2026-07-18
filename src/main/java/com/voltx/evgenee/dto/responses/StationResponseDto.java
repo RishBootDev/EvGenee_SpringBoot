@@ -2,6 +2,9 @@ package com.voltx.evgenee.dto.responses;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.voltx.evgenee.dto.common.*;
+import com.voltx.evgenee.enums.ConnectorType;
+import com.voltx.evgenee.enums.StationApprovalStatus;
+import com.voltx.evgenee.enums.StationStatus;
 import lombok.*;
 
 import java.util.List;
@@ -25,16 +28,20 @@ public class StationResponseDto {
     private Integer totalPorts;
     private Integer availablePorts;
     private Integer chargingSpeed;
-    private List<String> typeOfConnectors;
+    private List<ConnectorType> typeOfConnectors;
     private List<PricingDto> pricing;
     private Double platformFee;
     private Boolean isOpen;
     private String openingHours;
     private ContactInfoDto contactInfo;
-    private String status;
+    private StationStatus status;
+    private StationApprovalStatus approvalStatus;
+    private String approvalNote;
+    private String approvedAt;
     private String operator;
     private List<String> Images;
     private MechanicDto mechanic;
+    private List<MechanicDto> mechanics;
     private List<ReviewDto> reviews;
     private Double distance;
     private Double distanceKm;

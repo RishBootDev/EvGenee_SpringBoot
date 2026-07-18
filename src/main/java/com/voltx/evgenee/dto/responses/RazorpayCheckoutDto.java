@@ -1,5 +1,6 @@
 package com.voltx.evgenee.dto.responses;
 
+import com.voltx.evgenee.enums.CurrencyCode;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -15,7 +16,7 @@ public class RazorpayCheckoutDto {
     private String keyId;
     private String orderId;
     private BigDecimal amount;
-    private String currency;
+    private CurrencyCode currency;
     private Long bookingId;
     private String description;
 }

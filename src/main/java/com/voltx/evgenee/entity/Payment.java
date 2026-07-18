@@ -1,7 +1,9 @@
 package com.voltx.evgenee.entity;
 
+import com.voltx.evgenee.enums.CurrencyCode;
 import com.voltx.evgenee.enums.PaymentMethod;
 import com.voltx.evgenee.enums.PaymentStatus;
+import com.voltx.evgenee.enums.RazorpayStatus;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -23,7 +25,7 @@ public class Payment {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @OneToOne
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "booking_id")
     private Booking booking;
 
@@ -38,10 +40,12 @@ public class Payment {
     private String transactionId;
     @Column(unique = true)
     private String orderId;
-    private String currency;
+    @Enumerated(EnumType.STRING)
+    private CurrencyCode currency;
     private String receipt;
     private String razorpaySignature;
-    private String razorpayStatus;
+    @Enumerated(EnumType.STRING)
+    private RazorpayStatus razorpayStatus;
 
     private Instant paidAt;
 }

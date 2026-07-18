@@ -11,8 +11,13 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 @Builder
 public class MechanicDto {
+    private Long id;
+    private Long stationId;
+    private String stationName;
     private String name;
     private String phone;
+    private String garage;
     private Double rating;
     private String speciality;
+    private Boolean active;
 }

@@ -8,15 +8,19 @@ import com.voltx.evgenee.dto.responses.PaymentResponseDto;
 import com.voltx.evgenee.entity.Booking;
 import com.voltx.evgenee.entity.Payment;
 import com.voltx.evgenee.enums.BookingStatus;
+import com.voltx.evgenee.enums.CurrencyCode;
 import com.voltx.evgenee.enums.PaymentMethod;
 import com.voltx.evgenee.enums.PaymentStatus;
+import com.voltx.evgenee.enums.RazorpayStatus;
 import com.voltx.evgenee.exceptions.BadRequestException;
 import com.voltx.evgenee.exceptions.ResourceNotFoundException;
 import com.voltx.evgenee.repository.BookingRepository;
 import com.voltx.evgenee.repository.PaymentRepository;
 import com.voltx.evgenee.notification.EmailNotificationPublisher;
 import com.voltx.evgenee.service.PaymentService;
+import com.voltx.evgenee.socket.RealtimeNotificationService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.json.JSONObject;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.ObjectProvider;
@@ -26,17 +30,24 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.Locale;
 import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class PaymentServiceImpl implements PaymentService {
+
+    private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
 
     private final PaymentRepository paymentRepository;
     private final BookingRepository bookingRepository;
     private final ObjectProvider<RazorpayClient> razorpayClientProvider;
     private final EmailNotificationPublisher emailNotifications;
+    private final RealtimeNotificationService realtimeNotificationService;
 
     @Value("${razorpay.key.secret:}")
     private String razorpayKeySecret;
@@ -59,9 +70,9 @@ public class PaymentServiceImpl implements PaymentService {
             throw new BadRequestException("Payment amount must be at least 10 paise");
         }
 
-        String currency = requestDto.getCurrency() != null ? requestDto.getCurrency().toUpperCase(Locale.ROOT) : "INR";
+        CurrencyCode currency = requestDto.getCurrency() != null ? requestDto.getCurrency() : CurrencyCode.INR;
         String receipt = buildReceipt(booking);
-        Order order = createRazorpayOrder(amountInPaise, currency, receipt, booking);
+        Order order = createRazorpayOrder(amountInPaise, currency.name(), receipt, booking);
 
         String orderId = order.get("id");
         Integer razorpayAmount = order.get("amount");
@@ -72,10 +83,10 @@ public class PaymentServiceImpl implements PaymentService {
         Payment payment = Payment.builder()
                 .booking(booking)
                 .amount(fromPaise(razorpayAmount != null ? razorpayAmount : amountInPaise))
-                .currency(razorpayCurrency != null ? razorpayCurrency : currency)
+                .currency(razorpayCurrency != null ? currencyCode(razorpayCurrency, CurrencyCode.INR) : currency)
                 .orderId(orderId)
                 .receipt(razorpayReceipt != null ? razorpayReceipt : receipt)
-                .razorpayStatus(razorpayStatus != null ? razorpayStatus : "created")
+                .razorpayStatus(razorpayStatus != null ? razorpayStatus(razorpayStatus, RazorpayStatus.UNKNOWN) : RazorpayStatus.CREATED)
                 .transactionId(requestDto.getTransactionId())
                 .method(parseMethod(requestDto.getMethod()))
                 .status(PaymentStatus.PENDING)
@@ -99,9 +110,9 @@ public class PaymentServiceImpl implements PaymentService {
         Payment payment = paymentRepository.findByOrderId(orderId)
                 .orElseThrow(() -> new ResourceNotFoundException("Payment order not found: " + orderId));
 
-        boolean requestedPaid = "paid".equalsIgnoreCase(requestDto.getStatus())
-                || "captured".equalsIgnoreCase(requestDto.getStatus())
-                || "authorized".equalsIgnoreCase(requestDto.getStatus());
+        boolean requestedPaid = requestDto.getStatus() == RazorpayStatus.PAID
+                || requestDto.getStatus() == RazorpayStatus.CAPTURED
+                || requestDto.getStatus() == RazorpayStatus.AUTHORIZED;
         if (!requestedPaid) {
             payment.setTransactionId(paymentId);
             payment.setStatus(PaymentStatus.FAILED);
@@ -140,6 +151,38 @@ public class PaymentServiceImpl implements PaymentService {
             booking.setStatus(BookingStatus.CONFIRMED);
             Booking confirmed = bookingRepository.save(booking);
             emailNotifications.bookingConfirmed(confirmed);
+            notifyBookingConfirmed(confirmed);
+        }
+    }
+
+    private void notifyBookingConfirmed(Booking booking) {
+        try {
+            ZonedDateTime start = booking.getStartTime().atZone(IST);
+            ZonedDateTime end = booking.getEndTime().atZone(IST);
+            realtimeNotificationService.notifyBookingCreated(
+                    String.valueOf(booking.getStation().getId()),
+                    booking.getUser().getAuthUser().getEmail(),
+                    String.valueOf(booking.getId()),
+                    booking.getConnectorType() == null ? null : booking.getConnectorType().name(),
+                    start.toLocalTime().format(DateTimeFormatter.ofPattern("HH:mm")),
+                    end.toLocalTime().format(DateTimeFormatter.ofPattern("HH:mm")),
+                    start.toLocalDate().toString());
+            long active = bookingRepository.findOverlappingBookings(
+                            booking.getStation().getId(),
+                            booking.getEndTime(),
+                            booking.getStartTime())
+                    .stream()
+                    .filter(item -> item.getStatus() == BookingStatus.CONFIRMED
+                            || item.getStatus() == BookingStatus.IN_PROGRESS
+                            || item.getStatus() == BookingStatus.PENDING)
+                    .count();
+            realtimeNotificationService.notifyAvailabilityUpdated(
+                    String.valueOf(booking.getStation().getId()),
+                    start.toLocalDate().toString(),
+                    active,
+                    booking.getStation().getChargersCount() != null ? booking.getStation().getChargersCount() : 4);
+        } catch (Exception e) {
+            log.warn("Unable to emit booking confirmation after payment: {}", e.getMessage());
         }
     }
     private Order createRazorpayOrder(int amountInPaise, String currency, String receipt, Booking booking) {
@@ -191,7 +234,7 @@ public class PaymentServiceImpl implements PaymentService {
             Integer razorpayAmount = razorpayPayment.get("amount");
             String method = razorpayPayment.get("method");
 
-            payment.setRazorpayStatus(razorpayStatus);
+            payment.setRazorpayStatus(razorpayStatus(razorpayStatus, RazorpayStatus.UNKNOWN));
             payment.setMethod(parseMethod(method));
 
             int expectedAmount = toPaise(payment.getAmount() != null ? payment.getAmount() : BigDecimal.ZERO);
@@ -212,7 +255,7 @@ public class PaymentServiceImpl implements PaymentService {
                 .receipt(payment.getReceipt())
                 .bookingId(payment.getBooking() == null ? null : payment.getBooking().getId())
                 .amount(BigDecimal.valueOf(amountInPaise))
-                .currency(payment.getCurrency() != null ? payment.getCurrency() : "INR")
+                .currency(payment.getCurrency() != null ? payment.getCurrency() : CurrencyCode.INR)
                 .method(payment.getMethod())
                 .status(payment.getStatus())
                 .transactionId(payment.getTransactionId())
@@ -228,7 +271,7 @@ public class PaymentServiceImpl implements PaymentService {
                 .receipt(payment.getReceipt())
                 .bookingId(payment.getBooking() == null ? null : payment.getBooking().getId())
                 .amount(payment.getAmount() != null ? payment.getAmount() : BigDecimal.ZERO)
-                .currency(payment.getCurrency() != null ? payment.getCurrency() : "INR")
+                .currency(payment.getCurrency() != null ? payment.getCurrency() : CurrencyCode.INR)
                 .method(payment.getMethod())
                 .status(payment.getStatus())
                 .transactionId(payment.getTransactionId())
@@ -262,6 +305,28 @@ public class PaymentServiceImpl implements PaymentService {
         if (requestDto.getRazorpaySignature() != null) return requestDto.getRazorpaySignature();
         if (requestDto.getSignature() != null) return requestDto.getSignature();
         return requestDto.getPaymentSignature();
+    }
+
+    private PaymentMethod parseMethod(PaymentMethod method) {
+        return method == null ? PaymentMethod.OTHERS : method;
+    }
+
+    private CurrencyCode currencyCode(String currency, CurrencyCode fallback) {
+        if (currency == null || currency.isBlank()) return fallback;
+        try {
+            return CurrencyCode.valueOf(currency.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException ignored) {
+            return fallback;
+        }
+    }
+
+    private RazorpayStatus razorpayStatus(String status, RazorpayStatus fallback) {
+        if (status == null || status.isBlank()) return fallback;
+        try {
+            return RazorpayStatus.valueOf(status.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException ignored) {
+            return fallback;
+        }
     }
 
     private PaymentMethod parseMethod(String method) {

@@ -7,10 +7,15 @@ import com.voltx.evgenee.entity.EvUser;
 import com.voltx.evgenee.entity.Station;
 import com.voltx.evgenee.entity.Vehicle;
 import com.voltx.evgenee.enums.BookingStatus;
+import com.voltx.evgenee.enums.ConnectorType;
+import com.voltx.evgenee.enums.PaymentStatus;
+import com.voltx.evgenee.enums.StationApprovalStatus;
+import com.voltx.evgenee.enums.StationStatus;
 import com.voltx.evgenee.exceptions.BadRequestException;
 import com.voltx.evgenee.exceptions.ResourceNotFoundException;
 import com.voltx.evgenee.repository.BookingRepository;
 import com.voltx.evgenee.repository.EvUserRepository;
+import com.voltx.evgenee.repository.PaymentRepository;
 import com.voltx.evgenee.repository.StationRepository;
 import com.voltx.evgenee.repository.VehicleRepository;
 import com.voltx.evgenee.notification.EmailNotificationPublisher;
@@ -24,6 +29,8 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.*;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
@@ -41,6 +48,7 @@ public class BookingServiceImpl implements BookingService {
     private final StationRepository stationRepository;
     private final EvUserRepository evUserRepository;
     private final VehicleRepository vehicleRepository;
+    private final PaymentRepository paymentRepository;
     private final StationService stationService;
     private final RealtimeNotificationService realtimeNotificationService;
     private final EmailNotificationPublisher emailNotifications;
@@ -60,13 +68,11 @@ public class BookingServiceImpl implements BookingService {
         EvUser user = currentEvUser();
         Vehicle vehicle = findVehicle(user, requestDto.getVehicleNumber());
 
-        Booking booking = draft.toBooking(BookingStatus.CONFIRMED, user);
+        Booking booking = draft.toBooking(BookingStatus.PENDING, user);
         booking.setVehicle(vehicle);
         booking.setOtp(generateOtp());
         booking.setOtpExpiresAt(draft.start().plus(Duration.ofMinutes(30)));
         Booking saved = bookingRepository.save(booking);
-        emailNotifications.bookingConfirmed(saved);
-        notifyCreated(saved);
         return toResponse(saved);
     }
 
@@ -167,10 +173,19 @@ public class BookingServiceImpl implements BookingService {
         if (booking.getStatus() != BookingStatus.PENDING) {
             return toResponse(booking);
         }
+        BigDecimal expectedAdvance = BigDecimal.valueOf(booking.getGrandTotal())
+                .multiply(BigDecimal.valueOf(0.20))
+                .setScale(2, RoundingMode.HALF_UP);
+        boolean advancePaid = paymentRepository.findByBookingIdAndStatus(bookingId, PaymentStatus.PAID).stream()
+                .anyMatch(payment -> payment.getAmount() != null
+                        && payment.getAmount().setScale(2, RoundingMode.HALF_UP).compareTo(expectedAdvance) == 0);
+        if (!advancePaid) {
+            throw new BadRequestException("Advance payment is not verified yet");
+        }
         booking.setStatus(BookingStatus.CONFIRMED);
         Booking saved = bookingRepository.save(booking);
         emailNotifications.bookingConfirmed(saved);
-        notifyCapacity(saved);
+        notifyCreated(saved);
         return toResponse(saved);
     }
 
@@ -178,6 +193,12 @@ public class BookingServiceImpl implements BookingService {
         Long stationId = parseId(request.getStation(), "station");
         Station station = stationRepository.findById(stationId)
                 .orElseThrow(() -> new ResourceNotFoundException("Station not found: " + stationId));
+        if (!isApproved(station)) {
+            throw new BadRequestException("Station is not approved by admin yet");
+        }
+        if (station.getStatus() != StationStatus.ACTIVE || Boolean.FALSE.equals(station.getOpen())) {
+            throw new BadRequestException("Station is currently inactive");
+        }
         LocalDate date = parseDate(request.getDate());
         LocalTime startTime = parseTime(request.getStartTime());
         LocalTime endTime = parseTime(request.getEndTime());
@@ -281,7 +302,7 @@ public class BookingServiceImpl implements BookingService {
                 .grandTotal(booking.getGrandTotal())
                 .vehicleNumber(vehicleNumber)
                 .otp(booking.getOtp())
-                .status(toFrontendStatus(booking.getStatus()))
+                .status(booking.getStatus() != null ? booking.getStatus() : BookingStatus.PENDING)
                 .cancelledAt(formatInstant(booking.getCancelledAt()))
                 .cancellationReason(booking.getCancellationReason())
                 .checkedInAt(formatInstant(booking.getCheckedInAt()))
@@ -341,9 +362,12 @@ public class BookingServiceImpl implements BookingService {
         return Math.round(value * 100.0) / 100.0;
     }
 
-    private String toFrontendStatus(BookingStatus status) {
-        if (status == null) return "pending";
-        return status.name().toLowerCase().replace("_", "-");
+    private boolean isApproved(Station station) {
+        StationApprovalStatus approvalStatus = station.getApprovalStatus();
+        if (approvalStatus != null) {
+            return approvalStatus == StationApprovalStatus.APPROVED;
+        }
+        return station.getApprovedAt() != null || station.getStatus() != null;
     }
 
     private String formatInstant(Instant instant) {
@@ -358,7 +382,7 @@ public class BookingServiceImpl implements BookingService {
                     String.valueOf(booking.getStation().getId()),
                     booking.getUser().getAuthUser().getEmail(),
                     String.valueOf(booking.getId()),
-                    booking.getConnectorType(),
+                    booking.getConnectorType() == null ? null : booking.getConnectorType().name(),
                     start.toLocalTime().format(DateTimeFormatter.ofPattern("HH:mm")),
                     end.toLocalTime().format(DateTimeFormatter.ofPattern("HH:mm")),
                     start.toLocalDate().toString());
@@ -432,7 +456,7 @@ public class BookingServiceImpl implements BookingService {
             Station station,
             Instant start,
             Instant end,
-            String connectorType,
+            ConnectorType connectorType,
             String vehicleNumber,
             Integer durationMinutes,
             Double estimatedKWh,

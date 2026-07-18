@@ -102,7 +102,7 @@ public class EmailNotificationPublisher {
         return "<p>Hello <span class=\"highlight\">" + safe(name) + "</span>,</p>";
     }
 
-    private String details(String... values) {
+    private String details(Object... values) {
         StringBuilder html = new StringBuilder("<div class=\"otp-box\" style=\"text-align:left\">");
         for (int index = 0; index + 1 < values.length; index += 2) {
             html.append("<p><span class=\"highlight\">")

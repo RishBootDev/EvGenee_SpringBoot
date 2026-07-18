@@ -1,5 +1,7 @@
 package com.voltx.evgenee.dto.requests;
 
+import com.voltx.evgenee.enums.RoadsideIssueType;
+import com.voltx.evgenee.enums.SupportProvider;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -13,7 +15,9 @@ public class SosRequestDto {
     private Double latitude;
     private Double longitude;
     private String address;
-    private String issueType;
+    private RoadsideIssueType issueType;
     private String description;
     private Boolean requestTow;
+    private SupportProvider supportProvider;
+    private Long stationId;
 }

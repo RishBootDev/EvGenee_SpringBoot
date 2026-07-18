@@ -1,5 +1,6 @@
 package com.voltx.evgenee.dto.responses;
 
+import com.voltx.evgenee.enums.CurrencyCode;
 import com.voltx.evgenee.enums.PaymentMethod;
 import com.voltx.evgenee.enums.PaymentStatus;
 import lombok.AllArgsConstructor;
@@ -21,7 +22,7 @@ public class PaymentResponseDto {
     private String receipt;
     private Long bookingId;
     private BigDecimal amount;
-    private String currency;
+    private CurrencyCode currency;
     private PaymentMethod method;
     private PaymentStatus status;
     private String transactionId;

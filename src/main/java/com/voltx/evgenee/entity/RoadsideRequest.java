@@ -1,6 +1,12 @@
 package com.voltx.evgenee.entity;
 
+import com.voltx.evgenee.enums.ApprovalRequiredBy;
+import com.voltx.evgenee.enums.RoadsideIssueType;
+import com.voltx.evgenee.enums.RoadsideStatus;
+import com.voltx.evgenee.enums.SupportProvider;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -24,8 +30,18 @@ public class RoadsideRequest {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    private String status;
-    private String issueType;
+    @Enumerated(EnumType.STRING)
+    private RoadsideStatus status;
+
+    @Enumerated(EnumType.STRING)
+    private SupportProvider supportProvider;
+
+    @Enumerated(EnumType.STRING)
+    private ApprovalRequiredBy approvalRequiredBy;
+
+    @Enumerated(EnumType.STRING)
+    private RoadsideIssueType issueType;
+
     private String issueLabel;
     private Boolean towRequested;
     private String address;
@@ -40,6 +56,9 @@ public class RoadsideRequest {
     private String mechanicDistance;
     private Double mechanicRating;
     private String mechanicSpeciality;
+    private Long stationId;
+    private String stationName;
+    private Long stationMechanicId;
 
     @CreationTimestamp
     private Instant createdAt;

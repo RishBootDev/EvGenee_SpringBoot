@@ -1,6 +1,8 @@
 package com.voltx.evgenee.dto.responses;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.voltx.evgenee.enums.ConnectorType;
+import com.voltx.evgenee.enums.VehicleType;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -16,8 +18,8 @@ public class VehicleResponseDto {
     @JsonProperty("_id")
     private String _id;
     private String nickname;
-    private String type;
-    private String connectorType;
+    private VehicleType type;
+    private ConnectorType connectorType;
     private Double batteryCapacity;
     private String vehicleNumber;
 }

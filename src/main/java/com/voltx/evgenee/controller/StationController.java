@@ -1,6 +1,7 @@
 package com.voltx.evgenee.controller;
 
 
+import com.voltx.evgenee.dto.common.MechanicDto;
 import com.voltx.evgenee.dto.requests.ReviewRequestDto;
 import com.voltx.evgenee.dto.requests.StationRequestDto;
 import com.voltx.evgenee.dto.responses.ApiResponse;
@@ -76,6 +77,36 @@ public class StationController {
                         authentication.getName())));
     }
 
+
+    @GetMapping("/owner/mechanics")
+    public ResponseEntity<ApiResponse<List<MechanicDto>>> getMyMechanics(Authentication authentication) {
+        return ResponseEntity.ok(ApiResponse.ok(stationService.getMyMechanics(authentication.getName())));
+    }
+
+    @GetMapping("/{stationId}/mechanics")
+    public ResponseEntity<ApiResponse<List<MechanicDto>>> getStationMechanics(@PathVariable Long stationId) {
+        return ResponseEntity.ok(ApiResponse.ok(stationService.getStationMechanics(stationId)));
+    }
+
+    @PostMapping("/{stationId}/mechanics")
+    public ResponseEntity<ApiResponse<MechanicDto>> addMechanic(
+            @PathVariable Long stationId,
+            @RequestBody MechanicDto request) {
+        return ResponseEntity.ok(ApiResponse.ok("Mechanic registered", stationService.addMechanic(stationId, request)));
+    }
+
+    @PutMapping("/mechanics/{mechanicId}")
+    public ResponseEntity<ApiResponse<MechanicDto>> updateMechanic(
+            @PathVariable Long mechanicId,
+            @RequestBody MechanicDto request) {
+        return ResponseEntity.ok(ApiResponse.ok("Mechanic updated", stationService.updateMechanic(mechanicId, request)));
+    }
+
+    @DeleteMapping("/mechanics/{mechanicId}")
+    public ResponseEntity<ApiResponse<Void>> deleteMechanic(@PathVariable Long mechanicId) {
+        stationService.deleteMechanic(mechanicId);
+        return ResponseEntity.ok(ApiResponse.ok("Mechanic deleted", null));
+    }
     @PutMapping("/{stationId}")
     public ResponseEntity<ApiResponse<StationResponseDto>> updateStation(
             @PathVariable String stationId,

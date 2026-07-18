@@ -6,7 +6,9 @@ import com.corundumstudio.socketio.annotation.OnConnect;
 import com.corundumstudio.socketio.annotation.OnDisconnect;
 import com.corundumstudio.socketio.annotation.OnEvent;
 import com.voltx.evgenee.dto.responses.AiChatResponse;
+import com.voltx.evgenee.enums.Role;
 import com.voltx.evgenee.exceptions.UnauthorizedException;
+import com.voltx.evgenee.repository.UserRepository;
 import com.voltx.evgenee.service.AIService;
 import com.voltx.evgenee.util.JwtUtil;
 import lombok.RequiredArgsConstructor;
@@ -25,6 +27,7 @@ public class SocketIOHandler {
     private final SocketIOServer server;
     private final JwtUtil jwtUtil;
     private final AIService aiService;
+    private final UserRepository userRepository;
 
     @OnConnect
     public void onConnect(SocketIOClient client) {
@@ -80,6 +83,21 @@ public class SocketIOHandler {
     @OnEvent("user:subscribe")
     public void onUserSubscribe(SocketIOClient client, String userId) {
         client.joinRoom("user_" + userId);
+    }
+
+    @OnEvent("admin:subscribe")
+    public void onAdminSubscribe(SocketIOClient client) {
+        String email = client.get("email");
+        boolean admin = email != null && userRepository.findByEmail(email)
+                .map(user -> Role.ADMIN.equals(user.getRole()))
+                .orElse(false);
+        if (!admin) {
+            throw new UnauthorizedException("admin access required");
+        }
+        client.joinRoom("admin");
+        Map<String, String> response = new HashMap<>();
+        response.put("message", "Now receiving real-time admin updates");
+        client.sendEvent("admin:subscribed", response);
     }
 
     @OnEvent("ping")

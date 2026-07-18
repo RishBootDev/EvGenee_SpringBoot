@@ -1,5 +1,6 @@
 package com.voltx.evgenee.service.impl;
 
+import com.voltx.evgenee.configuration.RedisConfig;
 import com.voltx.evgenee.dto.requests.LoginRequest;
 import com.voltx.evgenee.dto.requests.VehicleRequestDto;
 import com.voltx.evgenee.dto.requests.UserRequestDto;
@@ -15,6 +16,7 @@ import com.voltx.evgenee.enums.VehicleType;
 import com.voltx.evgenee.exceptions.BadRequestException;
 import com.voltx.evgenee.exceptions.ResourceNotFoundException;
 import com.voltx.evgenee.repository.EvUserRepository;
+import com.voltx.evgenee.repository.AdminRepository;
 import com.voltx.evgenee.repository.StationOwnerRepository;
 import com.voltx.evgenee.repository.UserRepository;
 import com.voltx.evgenee.repository.VehicleRepository;
@@ -22,6 +24,8 @@ import com.voltx.evgenee.notification.EmailNotificationPublisher;
 import com.voltx.evgenee.service.UserService;
 import com.voltx.evgenee.util.JwtUtil;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -40,6 +44,7 @@ public class UserServiceImpl implements UserService {
     private static final SecureRandom OTP_RANDOM = new SecureRandom();
 
     private final UserRepository userRepository;
+    private final AdminRepository adminRepository;
     private final EvUserRepository evUserRepository;
     private final StationOwnerRepository stationOwnerRepository;
     private final VehicleRepository vehicleRepository;
@@ -57,7 +62,11 @@ public class UserServiceImpl implements UserService {
         User user = new User();
         user.setEmail(req.getEmail());
         user.setPassword(passwordEncoder.encode(req.getPassword()));
-        user.setRole(normalizeRole(req.getRole()));
+        Role requestedRole = normalizeRole(req.getRole());
+        if (requestedRole == Role.ADMIN) {
+            throw new BadRequestException("Admin accounts are managed by system configuration");
+        }
+        user.setRole(requestedRole);
 
         User saved = userRepository.save(user);
         if (saved.getRole() == Role.STATION_OWNER) {
@@ -100,6 +109,7 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
+    @Cacheable(cacheNames = RedisConfig.USERS_PROFILE, key = "#email")
     public UserResponseDto getProfile(String email) {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found: " + email));
@@ -108,13 +118,20 @@ public class UserServiceImpl implements UserService {
 
     @Override
     @Transactional
+    @CacheEvict(cacheNames = RedisConfig.USERS_PROFILE, key = "#email")
     public UserResponseDto updateProfile(String email, UserRequestDto requestDto) {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found: " + email));
 
         if (requestDto.getEmail() != null) user.setEmail(requestDto.getEmail());
         if (requestDto.getPassword() != null) user.setPassword(passwordEncoder.encode(requestDto.getPassword()));
-        if (requestDto.getRole() != null) user.setRole(normalizeRole(requestDto.getRole()));
+        if (requestDto.getRole() != null) {
+            Role requestedRole = normalizeRole(requestDto.getRole());
+            if (requestedRole == Role.ADMIN && user.getRole() != Role.ADMIN) {
+                throw new BadRequestException("Admin role cannot be assigned from profile update");
+            }
+            user.setRole(requestedRole);
+        }
 
         User saved = userRepository.save(user);
         if (saved.getRole() == Role.EV_USER) {
@@ -138,6 +155,7 @@ public class UserServiceImpl implements UserService {
 
     @Override
     @Transactional
+    @CacheEvict(cacheNames = RedisConfig.USERS_PROFILE, key = "#email")
     public void forgotPassword(String email) {
         if (email == null || email.isBlank()) {
             throw new BadRequestException("Email is required");
@@ -160,6 +178,7 @@ public class UserServiceImpl implements UserService {
 
     @Override
     @Transactional
+    @CacheEvict(cacheNames = RedisConfig.USERS_PROFILE, key = "#email")
     public void resetPassword(String email, String otp, String password) {
         if (password == null || password.isBlank()) {
             throw new BadRequestException("New password is required");
@@ -186,12 +205,6 @@ public class UserServiceImpl implements UserService {
     }
 
     private UserResponseDto toResponse(User user) {
-        String displayRole = switch (user.getRole()) {
-            case STATION_OWNER -> "StationOwner";
-            case ADMIN -> "admin";
-            case EV_USER -> "user";
-        };
-
         String name = null;
         VehicleResponseDto primaryVehicle = null;
         List<VehicleResponseDto> savedVehicles = List.of();
@@ -214,6 +227,10 @@ public class UserServiceImpl implements UserService {
             if (owner != null) {
                 name = owner.getName();
             }
+        } else if (user.getRole() == Role.ADMIN) {
+            name = adminRepository.findByAuthUserEmail(user.getEmail())
+                    .map(admin -> admin.getName())
+                    .orElse("Admin");
         }
 
         return UserResponseDto.builder()
@@ -221,22 +238,15 @@ public class UserServiceImpl implements UserService {
                 ._id(String.valueOf(user.getId()))
                 .name(name)
                 .email(user.getEmail())
-                .role(displayRole)
+                .role(user.getRole() != null ? user.getRole() : Role.EV_USER)
                 .vehicle(primaryVehicle)
                 .savedVehicles(savedVehicles)
                 .vehicleNumbers(vehicleNumbers)
                 .build();
     }
 
-    private Role normalizeRole(String role) {
-        if (role == null || role.isBlank() || role.equalsIgnoreCase("user")) {
-            return Role.EV_USER;
-        }
-        String normalized = role.trim().replace("-", "_").replace(" ", "_").toUpperCase(Locale.ROOT);
-        if (normalized.equals("STATIONOWNER")) normalized = "STATION_OWNER";
-        if (normalized.equals("ADMIN")) return Role.ADMIN;
-        if (normalized.equals("STATION_OWNER")) return Role.STATION_OWNER;
-        return Role.EV_USER;
+    private Role normalizeRole(Role role) {
+        return role == null ? Role.EV_USER : role;
     }
 
     private void syncVehicles(EvUser evUser, UserRequestDto req) {
@@ -248,6 +258,9 @@ public class UserServiceImpl implements UserService {
                 requests.add(VehicleRequestDto.builder().vehicleNumber(number).build());
             }
         }
+        requests = requests.stream()
+                .filter(this::hasVehicleData)
+                .toList();
         if (requests.isEmpty()) return;
 
         List<Vehicle> existing = vehicleRepository.findByOwnerId(evUser.getId());
@@ -259,18 +272,22 @@ public class UserServiceImpl implements UserService {
                     .licensePlate(dto.getVehicleNumber())
                     .connectorType(dto.getConnectorType())
                     .batteryCapacity(dto.getBatteryCapacity())
-                    .type(parseVehicleType(dto.getType()))
+                    .type(dto.getType() != null ? dto.getType() : VehicleType.EV)
                     .build());
         }
     }
 
-    private VehicleType parseVehicleType(String value) {
-        if (value == null || value.isBlank()) return VehicleType.EV;
-        try {
-            return VehicleType.valueOf(value.trim().toUpperCase(Locale.ROOT));
-        } catch (IllegalArgumentException ignored) {
-            return VehicleType.EV;
-        }
+    private boolean hasVehicleData(VehicleRequestDto dto) {
+        if (dto == null) return false;
+        return hasText(dto.getNickname())
+                || hasText(dto.getVehicleNumber())
+                || dto.getConnectorType() != null
+                || dto.getType() != null
+                || dto.getBatteryCapacity() != null;
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 
     private VehicleResponseDto toVehicleResponse(Vehicle vehicle) {
@@ -278,7 +295,7 @@ public class UserServiceImpl implements UserService {
                 .id(String.valueOf(vehicle.getId()))
                 ._id(String.valueOf(vehicle.getId()))
                 .nickname(vehicle.getModel())
-                .type(vehicle.getType() != null ? vehicle.getType().name() : "EV")
+                .type(vehicle.getType() != null ? vehicle.getType() : VehicleType.EV)
                 .connectorType(vehicle.getConnectorType())
                 .batteryCapacity(vehicle.getBatteryCapacity())
                 .vehicleNumber(vehicle.getLicensePlate())

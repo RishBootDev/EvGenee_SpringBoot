@@ -27,4 +27,12 @@ public interface RoadsideService {
     SosResponseDto cancelRequest(
             Long requestId
     );
+
+    List<SosResponseDto> getAllRequests();
+
+    List<SosResponseDto> getStationRequests(String ownerEmail);
+
+    SosResponseDto updateRequestStatus(Long requestId, String status);
+
+    SosResponseDto updateStationRequestStatus(String ownerEmail, Long requestId, String status);
 }

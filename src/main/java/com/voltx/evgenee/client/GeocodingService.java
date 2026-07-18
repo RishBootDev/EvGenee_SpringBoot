@@ -2,12 +2,12 @@ package com.voltx.evgenee.client;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.voltx.evgenee.configuration.RedisConfig;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 @Slf4j
@@ -18,21 +18,15 @@ public class GeocodingService {
 
     private final RestClient restClient;
     private final ObjectMapper objectMapper;
-    private final Map<String, double[]> geocodeCache = new ConcurrentHashMap<>();
-    private final Map<String, String> reverseGeocodeCache = new ConcurrentHashMap<>();
-    private final Map<String, RoadInfo> roadDistanceCache = new ConcurrentHashMap<>();
 
     public GeocodingService() {
         this.restClient = RestClient.builder().build();
         this.objectMapper = new ObjectMapper();
     }
 
+    @Cacheable(cacheNames = RedisConfig.GEOCODING, key = "#locationStr == null ? 'blank' : #locationStr.trim().toLowerCase()")
     public double[] geocodeLocation(String locationStr) {
         try {
-            String cacheKey = locationStr.trim().toLowerCase();
-            if (geocodeCache.containsKey(cacheKey)) {
-                return geocodeCache.get(cacheKey);
-            }
             String url = "https://nominatim.openstreetmap.org/search?q="
                     + locationStr.trim().replace(" ", "+")
                     + "&format=json&limit=1";
@@ -46,7 +40,6 @@ public class GeocodingService {
                 double lon = arr.get(0).get("lon").asDouble();
                 double lat = arr.get(0).get("lat").asDouble();
                 double[] coords = {lon, lat};
-                geocodeCache.put(cacheKey, coords);
                 return coords;
             }
         } catch (Exception e) {
@@ -55,12 +48,9 @@ public class GeocodingService {
         return new double[]{BHOPAL_LON, BHOPAL_LAT};
     }
 
+    @Cacheable(cacheNames = RedisConfig.REVERSE_GEOCODING, key = "T(java.lang.String).format('%.5f:%.5f', #lat, #lng)")
     public String reverseGeocode(double lat, double lng) {
         try {
-            String cacheKey = lat + "," + lng;
-            if (reverseGeocodeCache.containsKey(cacheKey)) {
-                return reverseGeocodeCache.get(cacheKey);
-            }
             String url = "https://nominatim.openstreetmap.org/reverse?lat=" + lat + "&lon=" + lng + "&format=json";
             String body = restClient.get()
                     .uri(url)
@@ -70,7 +60,6 @@ public class GeocodingService {
             JsonNode node = objectMapper.readTree(body);
             if (node != null && node.has("display_name")) {
                 String address = node.get("display_name").asText();
-                reverseGeocodeCache.put(cacheKey, address);
                 return address;
             }
         } catch (Exception e) {
@@ -79,12 +68,9 @@ public class GeocodingService {
         return "Bhopal, Madhya Pradesh, India";
     }
 
+    @Cacheable(cacheNames = RedisConfig.ROAD_DISTANCE, key = "T(java.lang.String).format('%.5f:%.5f:%.5f:%.5f', #startCoords[0], #startCoords[1], #endCoords[0], #endCoords[1])")
     public RoadInfo getRoadDistance(double[] startCoords, double[] endCoords) {
         try {
-            String cacheKey = startCoords[0] + "," + startCoords[1] + "|" + endCoords[0] + "," + endCoords[1];
-            if (roadDistanceCache.containsKey(cacheKey)) {
-                return roadDistanceCache.get(cacheKey);
-            }
             String url = "http://router.project-osrm.org/route/v1/driving/"
                     + startCoords[0] + "," + startCoords[1] + ";"
                     + endCoords[0] + "," + endCoords[1] + "?overview=false";
@@ -98,7 +84,6 @@ public class GeocodingService {
                 double distanceKm = Math.round(route.get("distance").asDouble() / 10.0) / 100.0;
                 double durationMins = Math.round(route.get("duration").asDouble() / 6.0) / 10.0;
                 RoadInfo info = new RoadInfo(distanceKm, durationMins);
-                roadDistanceCache.put(cacheKey, info);
                 return info;
             }
         } catch (Exception e) {

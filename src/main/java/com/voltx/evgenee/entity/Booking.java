@@ -1,6 +1,7 @@
 package com.voltx.evgenee.entity;
 
 import com.voltx.evgenee.enums.BookingStatus;
+import com.voltx.evgenee.enums.ConnectorType;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -10,6 +11,8 @@ import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 
 @Entity
 @Table(name = "bookings")
@@ -38,7 +41,8 @@ public class Booking {
 
     private Instant startTime;
     private Instant endTime;
-    private String connectorType;
+    @Enumerated(EnumType.STRING)
+    private ConnectorType connectorType;
     private String vehicleNumber;
     private Integer durationMinutes;
     private Double estimatedKWh;
@@ -49,8 +53,9 @@ public class Booking {
     @Enumerated(EnumType.STRING)
     private BookingStatus status;
 
-    @OneToOne(mappedBy = "booking", cascade = CascadeType.ALL)
-    private Payment payment;
+    @OneToMany(mappedBy = "booking", cascade = CascadeType.ALL)
+    @Builder.Default
+    private List<Payment> payments = new ArrayList<>();
 
     private Instant completedAt;
     private Instant cancelledAt;

@@ -7,4 +7,8 @@ import java.util.List;
 
 public interface RoadsideRequestRepository extends JpaRepository<RoadsideRequest, Long> {
     List<RoadsideRequest> findByUserEmailOrderByCreatedAtDesc(String userEmail);
+
+    List<RoadsideRequest> findAllByOrderByCreatedAtDesc();
+
+    List<RoadsideRequest> findByStationIdInOrderByCreatedAtDesc(List<Long> stationIds);
 }

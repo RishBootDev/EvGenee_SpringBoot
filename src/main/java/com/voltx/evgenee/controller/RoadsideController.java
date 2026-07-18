@@ -6,6 +6,7 @@ import com.voltx.evgenee.dto.responses.SosResponseDto;
 import com.voltx.evgenee.service.RoadsideService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -53,6 +54,33 @@ public class RoadsideController {
         return ResponseEntity.ok(ApiResponse.ok(roadsideService.getMyRequests()));
     }
 
+
+    @GetMapping("/station/requests")
+    public ResponseEntity<ApiResponse<List<SosResponseDto>>> getStationRequests(Authentication authentication) {
+        return ResponseEntity.ok(ApiResponse.ok(roadsideService.getStationRequests(authentication.getName())));
+    }
+
+    @PatchMapping("/station/requests/{requestId}/status")
+    public ResponseEntity<ApiResponse<SosResponseDto>> updateStationRequestStatus(
+            @PathVariable Long requestId,
+            @RequestParam String status,
+            Authentication authentication) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                "SOS request updated",
+                roadsideService.updateStationRequestStatus(authentication.getName(), requestId, status)));
+    }
+
+    @GetMapping("/admin/requests")
+    public ResponseEntity<ApiResponse<List<SosResponseDto>>> getAllRequests() {
+        return ResponseEntity.ok(ApiResponse.ok(roadsideService.getAllRequests()));
+    }
+
+    @PatchMapping("/admin/requests/{requestId}/status")
+    public ResponseEntity<ApiResponse<SosResponseDto>> updateAdminRequestStatus(
+            @PathVariable Long requestId,
+            @RequestParam String status) {
+        return ResponseEntity.ok(ApiResponse.ok("SOS request updated", roadsideService.updateRequestStatus(requestId, status)));
+    }
     @GetMapping("/sos/{requestId}")
     public ResponseEntity<ApiResponse<SosResponseDto>> getRequestDetails(
             @PathVariable Long requestId) {

@@ -1,6 +1,7 @@
 package com.voltx.evgenee.dto.responses;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.voltx.evgenee.enums.Role;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -19,7 +20,7 @@ public class UserResponseDto {
     private String _id;
     private String name;
     private String email;
-    private String role;
+    private Role role;
     private VehicleResponseDto vehicle;
     private List<String> vehicleNumbers;
     private List<VehicleResponseDto> savedVehicles;

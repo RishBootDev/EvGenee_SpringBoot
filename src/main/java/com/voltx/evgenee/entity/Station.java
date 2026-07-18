@@ -1,11 +1,14 @@
 package com.voltx.evgenee.entity;
 
+import com.voltx.evgenee.enums.StationApprovalStatus;
+import com.voltx.evgenee.enums.StationStatus;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.time.Instant;
 import java.util.List;
 
 @Entity
@@ -30,11 +33,16 @@ public class Station {
     @Column(name = "is_open")
     private Boolean open;
     private String openingHours;
-    private String status;
+    @Enumerated(EnumType.STRING)
+    private StationStatus status;
     private String operator;
     private String contactPhone;
     private String contactEmail;
     private String ownerName;
+    @Enumerated(EnumType.STRING)
+    private StationApprovalStatus approvalStatus;
+    private Instant approvedAt;
+    private String approvalNote;
 
     @Lob
     @Column(columnDefinition = "TEXT")
@@ -58,10 +66,6 @@ public class Station {
 
     @Lob
     @Column(columnDefinition = "TEXT")
-    private String mechanicJson;
-
-    @Lob
-    @Column(columnDefinition = "TEXT")
     private String peakPricingJson;
 
     @ManyToOne
@@ -73,4 +77,7 @@ public class Station {
 
     @OneToMany(mappedBy = "station", cascade = CascadeType.ALL)
     private List<Booking> bookings;
+
+    @OneToMany(mappedBy = "station", cascade = CascadeType.ALL)
+    private List<StationMechanic> mechanics;
 }

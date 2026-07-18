@@ -11,6 +11,8 @@ import com.voltx.evgenee.entity.ChatMessage;
 import com.voltx.evgenee.entity.EvUser;
 import com.voltx.evgenee.entity.User;
 import com.voltx.evgenee.entity.Vehicle;
+import com.voltx.evgenee.enums.ChatMessageRole;
+import com.voltx.evgenee.enums.ConnectorType;
 import com.voltx.evgenee.repository.ChatMessageRepository;
 import com.voltx.evgenee.repository.EvUserRepository;
 import com.voltx.evgenee.repository.UserRepository;
@@ -100,7 +102,7 @@ public class AIServiceImpl implements AIService {
                         : station.getAddress().getCity();
                 String connectors = station.getTypeOfConnectors() == null || station.getTypeOfConnectors().isEmpty()
                         ? "unspecified connectors"
-                        : String.join(", ", station.getTypeOfConnectors());
+                        : String.join(", ", station.getTypeOfConnectors().stream().map(ConnectorType::name).toList());
                 context.append("  * Internal station id ").append(station.getId())
                         .append(": ").append(station.getName())
                         .append(" | ").append(city)
@@ -131,8 +133,8 @@ public class AIServiceImpl implements AIService {
             if (!vehicles.isEmpty()) {
                 profileInfo.append("- Saved Vehicles:\n");
                 for (Vehicle v : vehicles) {
-                    String connectorType = v.getConnectorType() != null && !v.getConnectorType().isBlank()
-                            ? v.getConnectorType()
+                    String connectorType = v.getConnectorType() != null
+                            ? v.getConnectorType().name()
                             : "unspecified";
                     profileInfo.append("  * ").append(v.getModel()).append(": ")
                             .append(v.getType() != null ? v.getType().toString() : "EV")
@@ -222,7 +224,7 @@ public class AIServiceImpl implements AIService {
 
         for (int index = history.size() - 1; index >= 0; index--) {
             ChatMessage message = history.get(index);
-            if ("ai".equalsIgnoreCase(message.getRole()) || "assistant".equalsIgnoreCase(message.getRole())) {
+            if (message.getRole() != null && message.getRole().isAssistant()) {
                 String previous = normalizeForComparison(message.getContent());
                 if (!previous.isBlank() && previous.equals(normalized)) return true;
                 break;
@@ -264,7 +266,7 @@ public class AIServiceImpl implements AIService {
     }
 
     static String compactHistoryContent(ChatMessage message) {
-        if ("user".equalsIgnoreCase(message.getRole())) {
+        if (message.getRole() == ChatMessageRole.USER) {
             return truncate(message.getContent(), 500);
         }
 
@@ -378,7 +380,7 @@ public class AIServiceImpl implements AIService {
             ChatMessage userMsg = ChatMessage.builder()
                     .threadId(effectiveThreadId)
                     .userId(userId)
-                    .role("user")
+                    .role(ChatMessageRole.USER)
                     .content(effectiveMessage)
                     .createdAt(Instant.now())
                     .build();
@@ -395,9 +397,8 @@ public class AIServiceImpl implements AIService {
             String previousRole = null;
             String previousContent = null;
             for (ChatMessage histMsg : history) {
-                boolean userRole = "user".equalsIgnoreCase(histMsg.getRole());
-                boolean assistantRole = "ai".equalsIgnoreCase(histMsg.getRole())
-                        || "assistant".equalsIgnoreCase(histMsg.getRole());
+                boolean userRole = histMsg.getRole() == ChatMessageRole.USER;
+                boolean assistantRole = histMsg.getRole() != null && histMsg.getRole().isAssistant();
                 if (!userRole && !assistantRole) continue;
                 if (assistantRole && isMalformedAiOutput(histMsg.getContent())) continue;
 
@@ -444,7 +445,7 @@ public class AIServiceImpl implements AIService {
             ChatMessage aiMsg = ChatMessage.builder()
                     .threadId(effectiveThreadId)
                     .userId(userId)
-                    .role("ai")
+                    .role(ChatMessageRole.AI)
                     .content(persistedAiResponse)
                     .createdAt(Instant.now())
                     .build();

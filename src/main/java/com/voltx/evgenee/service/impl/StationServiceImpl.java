@@ -10,20 +10,30 @@ import com.voltx.evgenee.dto.responses.StationResponseDto;
 import com.voltx.evgenee.entity.EvUser;
 import com.voltx.evgenee.entity.Review;
 import com.voltx.evgenee.entity.Station;
+import com.voltx.evgenee.entity.StationMechanic;
 import com.voltx.evgenee.entity.StationOwner;
+import com.voltx.evgenee.enums.ConnectorType;
+import com.voltx.evgenee.enums.CurrencyCode;
+import com.voltx.evgenee.enums.StationApprovalStatus;
+import com.voltx.evgenee.enums.StationStatus;
 import com.voltx.evgenee.entity.User;
 import com.voltx.evgenee.exceptions.BadRequestException;
 import com.voltx.evgenee.exceptions.ResourceNotFoundException;
 import com.voltx.evgenee.repository.EvUserRepository;
 import com.voltx.evgenee.repository.ReviewRepository;
 import com.voltx.evgenee.repository.StationOwnerRepository;
+import com.voltx.evgenee.repository.StationMechanicRepository;
 import com.voltx.evgenee.repository.StationRepository;
+import com.voltx.evgenee.configuration.RedisConfig;
 import com.voltx.evgenee.repository.UserRepository;
 import com.voltx.evgenee.service.StationService;
 import com.voltx.evgenee.socket.RealtimeNotificationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.Caching;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,6 +41,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 @Service
@@ -40,6 +51,7 @@ public class StationServiceImpl implements StationService {
 
     private final StationRepository stationRepository;
     private final StationOwnerRepository stationOwnerRepository;
+    private final StationMechanicRepository stationMechanicRepository;
     private final EvUserRepository evUserRepository;
     private final ReviewRepository reviewRepository;
     private final UserRepository userRepository;
@@ -51,8 +63,11 @@ public class StationServiceImpl implements StationService {
 
     @Override
     @Transactional(readOnly = true)
+    @Cacheable(cacheNames = RedisConfig.STATIONS_NEARBY, key = "T(java.lang.String).format('lat:%.5f:lng:%.5f:r:%s', #latitude, #longitude, #radius == null ? 'all' : #radius)", condition = "#latitude != null && #longitude != null")
     public List<StationResponseDto> getNearbyStations(Double latitude, Double longitude, Double radius) {
-        List<StationResponseDto> list = stationRepository.findAll().stream()
+        List<StationResponseDto> list = stationRepository
+                .findByApprovalStatusAndLatitudeIsNotNullAndLongitudeIsNotNullOrderByIdDesc(StationApprovalStatus.APPROVED)
+                .stream()
                 .map(station -> toResponse(station, latitude, longitude))
                 .filter(station -> radius == null || station.getDistanceKm() == null || station.getDistanceKm() <= radius)
                 .sorted(Comparator.comparing(s -> s.getDistanceKm() == null ? Double.MAX_VALUE : s.getDistanceKm()))
@@ -63,12 +78,14 @@ public class StationServiceImpl implements StationService {
 
     @Override
     @Transactional(readOnly = true)
+    @Cacheable(cacheNames = RedisConfig.STATIONS_ALL, key = "'all'")
     public List<StationResponseDto> getAllStations() {
         return stationRepository.findAll().stream().map(station -> toResponse(station, null, null)).toList();
     }
 
     @Override
     @Transactional(readOnly = true)
+    @Cacheable(cacheNames = RedisConfig.STATIONS_BY_OWNER, key = "'owner:' + #ownerId")
     public List<StationResponseDto> getStationsByOwner(Long ownerId) {
         Long stationOwnerId = stationOwnerRepository.findByAuthUserId(ownerId)
                 .map(StationOwner::getId)
@@ -78,27 +95,43 @@ public class StationServiceImpl implements StationService {
 
     @Override
     @Transactional
+    @Caching(evict = {
+            @CacheEvict(cacheNames = RedisConfig.STATIONS_BY_ID, key = "'station:' + #stationId"),
+            @CacheEvict(cacheNames = {RedisConfig.STATIONS_ALL, RedisConfig.STATIONS_BY_OWNER, RedisConfig.STATIONS_NEARBY}, allEntries = true)
+    })
     public void updateStationStatus(Long stationId, String status) {
         Station station = getStation(stationId);
-        station.setStatus(normalizeStatus(status));
-        station.setOpen("active".equals(station.getStatus()));
+        if (!isApproved(station)) {
+            throw new BadRequestException("Station must be approved by admin before it can be activated");
+        }
+        station.setStatus(stationStatus(status, StationStatus.INACTIVE));
+        station.setOpen(station.getStatus() == StationStatus.ACTIVE);
         stationRepository.save(station);
         notifyStationStatus(station);
     }
 
     @Override
     @Transactional
+    @Caching(evict = {
+            @CacheEvict(cacheNames = RedisConfig.STATIONS_BY_ID, key = "'station:' + #stationId"),
+            @CacheEvict(cacheNames = {RedisConfig.STATIONS_ALL, RedisConfig.STATIONS_BY_OWNER, RedisConfig.STATIONS_NEARBY}, allEntries = true)
+    })
     public void suspendStation(Long stationId) {
-        updateStationStatus(stationId, "inactive");
+        updateStationStatus(stationId, StationStatus.INACTIVE.name());
     }
 
     @Override
+    @Caching(evict = {
+            @CacheEvict(cacheNames = RedisConfig.STATIONS_BY_ID, key = "'station:' + #stationId"),
+            @CacheEvict(cacheNames = {RedisConfig.STATIONS_ALL, RedisConfig.STATIONS_BY_OWNER, RedisConfig.STATIONS_NEARBY}, allEntries = true)
+    })
     public void deleteStation(Long stationId) {
         stationRepository.delete(getStation(stationId));
     }
 
     @Override
     @Transactional
+    @CacheEvict(cacheNames = {RedisConfig.STATIONS_ALL, RedisConfig.STATIONS_BY_OWNER, RedisConfig.STATIONS_NEARBY}, allEntries = true)
     public StationResponseDto addStation(StationRequestDto request) {
         String email = currentEmail();
         StationOwner owner = stationOwnerRepository.findByEmail(email)
@@ -114,6 +147,14 @@ public class StationServiceImpl implements StationService {
         Station station = new Station();
         station.setOwner(owner);
         applyRequest(station, request);
+        if (!isAdmin()) {
+            station.setApprovalStatus(StationApprovalStatus.PENDING);
+            station.setStatus(StationStatus.INACTIVE);
+            station.setOpen(false);
+        } else {
+            station.setApprovalStatus(StationApprovalStatus.APPROVED);
+            station.setApprovedAt(Instant.now());
+        }
         Station saved = stationRepository.save(station);
         notifyStationUpdated(saved);
         return toResponse(saved, null, null);
@@ -121,6 +162,7 @@ public class StationServiceImpl implements StationService {
 
     @Override
     @Transactional(readOnly = true)
+    @Cacheable(cacheNames = RedisConfig.STATIONS_BY_OWNER, key = "'my:' + #ownerEmail")
     public List<StationResponseDto> getMyStations(String ownerEmail) {
         StationOwner owner = stationOwnerRepository.findByEmail(ownerEmail)
                 .orElseThrow(() -> new ResourceNotFoundException("Station owner profile not found"));
@@ -129,12 +171,17 @@ public class StationServiceImpl implements StationService {
 
     @Override
     @Transactional(readOnly = true)
+    @Cacheable(cacheNames = RedisConfig.STATIONS_BY_ID, key = "'station:' + #stationId")
     public StationResponseDto getStationById(Long stationId) {
         return toResponse(getStation(stationId), null, null);
     }
 
     @Override
     @Transactional
+    @Caching(evict = {
+            @CacheEvict(cacheNames = RedisConfig.STATIONS_BY_ID, key = "'station:' + #stationId"),
+            @CacheEvict(cacheNames = {RedisConfig.STATIONS_ALL, RedisConfig.STATIONS_BY_OWNER, RedisConfig.STATIONS_NEARBY}, allEntries = true)
+    })
     public StationResponseDto updateStation(Long stationId, StationRequestDto request) {
         Station station = getStation(stationId);
         applyRequest(station, request);
@@ -145,6 +192,10 @@ public class StationServiceImpl implements StationService {
 
     @Override
     @Transactional
+    @Caching(evict = {
+            @CacheEvict(cacheNames = RedisConfig.STATIONS_BY_ID, key = "'station:' + #stationId"),
+            @CacheEvict(cacheNames = {RedisConfig.STATIONS_ALL, RedisConfig.STATIONS_BY_OWNER, RedisConfig.STATIONS_NEARBY}, allEntries = true)
+    })
     public ReviewResponseDto addReview(Long stationId, ReviewRequestDto request) {
         Station station = getStation(stationId);
         String email = currentEmail();
@@ -162,16 +213,123 @@ public class StationServiceImpl implements StationService {
 
     @Override
     @Transactional
+    @Caching(evict = {
+            @CacheEvict(cacheNames = RedisConfig.STATIONS_BY_ID, key = "'station:' + #stationId"),
+            @CacheEvict(cacheNames = {RedisConfig.STATIONS_ALL, RedisConfig.STATIONS_BY_OWNER, RedisConfig.STATIONS_NEARBY}, allEntries = true)
+    })
     public void toggleStationStatus(Long stationId) {
         Station station = getStation(stationId);
+        if (!isApproved(station)) {
+            throw new BadRequestException("Station must be approved by admin before it can be activated");
+        }
         boolean open = station.getOpen() == null || !station.getOpen();
         station.setOpen(open);
-        station.setStatus(open ? "active" : "inactive");
+        station.setStatus(open ? StationStatus.ACTIVE : StationStatus.INACTIVE);
         stationRepository.save(station);
         notifyStationStatus(station);
     }
 
+
+    @Override
+    @Transactional
+    @Caching(evict = {
+            @CacheEvict(cacheNames = RedisConfig.STATIONS_BY_ID, key = "'station:' + #stationId"),
+            @CacheEvict(cacheNames = {RedisConfig.STATIONS_ALL, RedisConfig.STATIONS_BY_OWNER, RedisConfig.STATIONS_NEARBY}, allEntries = true)
+    })
+    public StationResponseDto approveStation(Long stationId) {
+        Station station = getStation(stationId);
+        station.setApprovalStatus(StationApprovalStatus.APPROVED);
+        station.setStatus(StationStatus.ACTIVE);
+        station.setOpen(true);
+        station.setApprovedAt(Instant.now());
+        station.setApprovalNote(null);
+        return toResponse(stationRepository.save(station), null, null);
+    }
+
+    @Override
+    @Transactional
+    @Caching(evict = {
+            @CacheEvict(cacheNames = RedisConfig.STATIONS_BY_ID, key = "'station:' + #stationId"),
+            @CacheEvict(cacheNames = {RedisConfig.STATIONS_ALL, RedisConfig.STATIONS_BY_OWNER, RedisConfig.STATIONS_NEARBY}, allEntries = true)
+    })
+    public StationResponseDto rejectStation(Long stationId, String reason) {
+        Station station = getStation(stationId);
+        station.setApprovalStatus(StationApprovalStatus.REJECTED);
+        station.setStatus(StationStatus.INACTIVE);
+        station.setOpen(false);
+        station.setApprovalNote(reason == null || reason.isBlank() ? "Rejected by admin" : reason);
+        return toResponse(stationRepository.save(station), null, null);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<StationResponseDto> getPendingStations() {
+        return stationRepository.findByApprovalStatusOrderByIdDesc(StationApprovalStatus.PENDING).stream()
+                .map(station -> toResponse(station, null, null))
+                .toList();
+    }
+
+    @Override
+    @Transactional
+    @CacheEvict(cacheNames = {RedisConfig.STATIONS_BY_ID, RedisConfig.STATIONS_ALL, RedisConfig.STATIONS_BY_OWNER, RedisConfig.STATIONS_NEARBY, RedisConfig.ROADSIDE_STATIC}, allEntries = true)
+    public MechanicDto addMechanic(Long stationId, MechanicDto request) {
+        Station station = getOwnedStation(stationId);
+        StationMechanic mechanic = StationMechanic.builder()
+                .station(station)
+                .name(request.getName())
+                .phone(request.getPhone())
+                .garage(request.getGarage())
+                .speciality(request.getSpeciality())
+                .rating(request.getRating() != null ? request.getRating() : 4.5)
+                .active(request.getActive() == null || request.getActive())
+                .build();
+        return toMechanicResponse(stationMechanicRepository.save(mechanic));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<MechanicDto> getMyMechanics(String ownerEmail) {
+        return stationMechanicRepository.findByOwnerEmail(ownerEmail).stream()
+                .map(this::toMechanicResponse)
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<MechanicDto> getStationMechanics(Long stationId) {
+        getOwnedStation(stationId);
+        return stationMechanicRepository.findByStationIdOrderByCreatedAtDesc(stationId).stream()
+                .map(this::toMechanicResponse)
+                .toList();
+    }
+
+    @Override
+    @Transactional
+    @CacheEvict(cacheNames = {RedisConfig.STATIONS_BY_ID, RedisConfig.STATIONS_ALL, RedisConfig.STATIONS_BY_OWNER, RedisConfig.STATIONS_NEARBY, RedisConfig.ROADSIDE_STATIC}, allEntries = true)
+    public MechanicDto updateMechanic(Long mechanicId, MechanicDto request) {
+        StationMechanic mechanic = stationMechanicRepository.findById(mechanicId)
+                .orElseThrow(() -> new ResourceNotFoundException("Mechanic not found: " + mechanicId));
+        assertOwnerOrAdmin(mechanic.getStation());
+        mechanic.setName(value(request.getName(), mechanic.getName()));
+        mechanic.setPhone(value(request.getPhone(), mechanic.getPhone()));
+        mechanic.setGarage(value(request.getGarage(), mechanic.getGarage()));
+        mechanic.setSpeciality(value(request.getSpeciality(), mechanic.getSpeciality()));
+        mechanic.setRating(value(request.getRating(), mechanic.getRating()));
+        mechanic.setActive(value(request.getActive(), mechanic.getActive()));
+        return toMechanicResponse(stationMechanicRepository.save(mechanic));
+    }
+
+    @Override
+    @Transactional
+    @CacheEvict(cacheNames = {RedisConfig.STATIONS_BY_ID, RedisConfig.STATIONS_ALL, RedisConfig.STATIONS_BY_OWNER, RedisConfig.STATIONS_NEARBY, RedisConfig.ROADSIDE_STATIC}, allEntries = true)
+    public void deleteMechanic(Long mechanicId) {
+        StationMechanic mechanic = stationMechanicRepository.findById(mechanicId)
+                .orElseThrow(() -> new ResourceNotFoundException("Mechanic not found: " + mechanicId));
+        assertOwnerOrAdmin(mechanic.getStation());
+        stationMechanicRepository.delete(mechanic);
+    }
     private void applyRequest(Station station, StationRequestDto request) {
+        StationApprovalStatus existingApprovalStatus = approvalStatusOf(station);
         station.setName(value(request.getName(), station.getName()));
         station.setOwnerName(value(request.getOwnerofStation(), station.getOwnerName()));
         station.setChargersCount(value(request.getTotalPorts(), station.getChargersCount()));
@@ -180,7 +338,10 @@ public class StationServiceImpl implements StationService {
         station.setPlatformFee(value(request.getPlatformFee(), station.getPlatformFee() != null ? station.getPlatformFee() : defaultPlatformFee));
         station.setOpen(value(request.getIsOpen(), station.getOpen() != null ? station.getOpen() : true));
         station.setOpeningHours(value(request.getOpeningHours(), station.getOpeningHours() != null ? station.getOpeningHours() : "08:00 - 22:00"));
-        station.setStatus(normalizeStatus(value(request.getStatus(), station.getStatus() != null ? station.getStatus() : "active")));
+        station.setStatus(value(request.getStatus(), station.getStatus() != null ? station.getStatus() : StationStatus.INACTIVE));
+        if (station.getApprovalStatus() == null) {
+            station.setApprovalStatus(existingApprovalStatus);
+        }
         station.setOperator(value(request.getOperator(), station.getOperator()));
 
         if (request.getLocation() != null && request.getLocation().getCoordinates() != null && request.getLocation().getCoordinates().size() >= 2) {
@@ -199,14 +360,13 @@ public class StationServiceImpl implements StationService {
         station.setConnectorsJson(write(request.getTypeOfConnectors()));
         station.setPricingJson(write(request.getPricing()));
         station.setImagesJson(write(request.getImages()));
-        station.setMechanicJson(write(request.getMechanic()));
         station.setPeakPricingJson(write(request.getPeakPricing()));
     }
 
     private StationResponseDto toResponse(Station station, Double userLat, Double userLng) {
         Integer totalPorts = station.getChargersCount() != null ? station.getChargersCount() : 4;
         List<PricingDto> pricing = read(station.getPricingJson(), new TypeReference<List<PricingDto>>() {}, defaultPricing(totalPorts));
-        List<String> connectors = read(station.getConnectorsJson(), new TypeReference<List<String>>() {},
+        List<ConnectorType> connectors = read(station.getConnectorsJson(), new TypeReference<List<ConnectorType>>() {},
                 pricing.stream().map(PricingDto::getConnectorType).toList());
         AddressDto address = read(station.getAddressJson(), new TypeReference<AddressDto>() {}, fallbackAddress(station.getAddress()));
         Double distance = userLat != null && userLng != null && station.getLatitude() != null && station.getLongitude() != null
@@ -240,10 +400,16 @@ public class StationServiceImpl implements StationService {
                 .isOpen(station.getOpen() == null || station.getOpen())
                 .openingHours(station.getOpeningHours() != null ? station.getOpeningHours() : "08:00 - 22:00")
                 .contactInfo(ContactInfoDto.builder().phoneNumber(station.getContactPhone()).email(station.getContactEmail()).build())
-                .status(station.getStatus() != null ? station.getStatus() : "active")
+                .status(station.getStatus() != null ? station.getStatus() : StationStatus.INACTIVE)
+                .approvalStatus(approvalStatusOf(station))
+                .approvalNote(station.getApprovalNote())
+                .approvedAt(station.getApprovedAt() == null ? null : station.getApprovedAt().toString())
                 .operator(station.getOperator())
                 .Images(read(station.getImagesJson(), new TypeReference<List<String>>() {}, List.of()))
-                .mechanic(read(station.getMechanicJson(), new TypeReference<MechanicDto>() {}, null))
+                .mechanic(firstMechanic(station))
+                .mechanics(station.getMechanics() == null ? List.of() : station.getMechanics().stream()
+                        .map(this::toMechanicResponse)
+                        .toList())
                 .reviews(station.getReviews() == null ? List.of() : station.getReviews().stream()
                         .map(r -> ReviewDto.builder()
                                 .userId(r.getUser() == null ? null : String.valueOf(r.getUser().getId()))
@@ -269,6 +435,52 @@ public class StationServiceImpl implements StationService {
                 .build();
     }
 
+
+    private Station getOwnedStation(Long stationId) {
+        Station station = getStation(stationId);
+        assertOwnerOrAdmin(station);
+        return station;
+    }
+
+    private void assertOwnerOrAdmin(Station station) {
+        if (isAdmin()) return;
+        String email = currentEmail();
+        String ownerEmail = station.getOwner() == null || station.getOwner().getAuthUser() == null
+                ? null
+                : station.getOwner().getAuthUser().getEmail();
+        if (ownerEmail == null || !ownerEmail.equalsIgnoreCase(email)) {
+            throw new BadRequestException("You can manage only your own station resources");
+        }
+    }
+
+    private boolean isAdmin() {
+        var auth = SecurityContextHolder.getContext().getAuthentication();
+        return auth != null && auth.getAuthorities().stream()
+                .anyMatch(a -> "ROLE_ADMIN".equals(a.getAuthority()));
+    }
+
+    private MechanicDto toMechanicResponse(StationMechanic mechanic) {
+        Station station = mechanic.getStation();
+        return MechanicDto.builder()
+                .id(mechanic.getId())
+                .stationId(station == null ? null : station.getId())
+                .stationName(station == null ? null : station.getName())
+                .name(mechanic.getName())
+                .phone(mechanic.getPhone())
+                .garage(mechanic.getGarage())
+                .rating(mechanic.getRating())
+                .speciality(mechanic.getSpeciality())
+                .active(mechanic.getActive())
+                .build();
+    }
+
+    private MechanicDto firstMechanic(Station station) {
+        if (station.getMechanics() == null || station.getMechanics().isEmpty()) {
+            return null;
+        }
+        return toMechanicResponse(station.getMechanics().get(0));
+    }
+
     private Station getStation(Long stationId) {
         return stationRepository.findById(stationId)
                 .orElseThrow(() -> new ResourceNotFoundException("Station not found: " + stationId));
@@ -284,8 +496,26 @@ public class StationServiceImpl implements StationService {
         return incoming != null ? incoming : fallback;
     }
 
-    private String normalizeStatus(String status) {
-        return status == null || status.equalsIgnoreCase("active") ? "active" : "inactive";
+    private boolean isApproved(Station station) {
+        return StationApprovalStatus.APPROVED == approvalStatusOf(station);
+    }
+
+    private StationStatus stationStatus(String status, StationStatus fallback) {
+        if (status == null || status.isBlank()) return fallback;
+        try {
+            return StationStatus.valueOf(status.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException ignored) {
+            return fallback;
+        }
+    }
+
+    private StationApprovalStatus approvalStatusOf(Station station) {
+        StationApprovalStatus approvalStatus = station.getApprovalStatus();
+        if (approvalStatus != null) {
+            return approvalStatus;
+        }
+        if (station.getApprovedAt() != null) return StationApprovalStatus.APPROVED;
+        return station.getStatus() != null ? StationApprovalStatus.APPROVED : StationApprovalStatus.PENDING;
     }
 
     private String write(Object value) {
@@ -308,8 +538,8 @@ public class StationServiceImpl implements StationService {
 
     private List<PricingDto> defaultPricing(Integer totalPorts) {
         return List.of(
-                PricingDto.builder().connectorType("CCS2").priceperKWh(15.0).portCount(Math.max(1, totalPorts / 2)).currency("INR").build(),
-                PricingDto.builder().connectorType("Type2").priceperKWh(12.0).portCount(Math.max(1, totalPorts / 2)).currency("INR").build());
+                PricingDto.builder().connectorType(ConnectorType.CCS2).priceperKWh(15.0).portCount(Math.max(1, totalPorts / 2)).currency(CurrencyCode.INR).build(),
+                PricingDto.builder().connectorType(ConnectorType.TYPE2).priceperKWh(12.0).portCount(Math.max(1, totalPorts / 2)).currency(CurrencyCode.INR).build());
     }
 
     private AddressDto fallbackAddress(String address) {

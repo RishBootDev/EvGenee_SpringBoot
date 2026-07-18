@@ -1,5 +1,6 @@
 package com.voltx.evgenee.service;
 
+import com.voltx.evgenee.dto.common.MechanicDto;
 import com.voltx.evgenee.dto.requests.ReviewRequestDto;
 import com.voltx.evgenee.dto.requests.StationRequestDto;
 import com.voltx.evgenee.dto.responses.ReviewResponseDto;
@@ -48,4 +49,20 @@ public interface StationService {
 
     void toggleStationStatus(
             Long stationId);
+
+    StationResponseDto approveStation(Long stationId);
+
+    StationResponseDto rejectStation(Long stationId, String reason);
+
+    List<StationResponseDto> getPendingStations();
+
+    MechanicDto addMechanic(Long stationId, MechanicDto request);
+
+    List<MechanicDto> getMyMechanics(String ownerEmail);
+
+    List<MechanicDto> getStationMechanics(Long stationId);
+
+    MechanicDto updateMechanic(Long mechanicId, MechanicDto request);
+
+    void deleteMechanic(Long mechanicId);
 }

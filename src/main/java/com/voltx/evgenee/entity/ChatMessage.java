@@ -1,5 +1,6 @@
 package com.voltx.evgenee.entity;
 
+import com.voltx.evgenee.enums.ChatMessageRole;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -33,7 +34,8 @@ public class ChatMessage {
     private Long userId;
 
     @Column(nullable = false)
-    private String role;
+    @Enumerated(EnumType.STRING)
+    private ChatMessageRole role;
 
     @Column(columnDefinition = "TEXT", nullable = false)
     private String content;
