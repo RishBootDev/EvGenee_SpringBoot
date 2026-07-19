@@ -1,7 +1,5 @@
 package com.voltx.evgenee.service.impl;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.voltx.evgenee.dto.common.*;
 import com.voltx.evgenee.dto.requests.ReviewRequestDto;
 import com.voltx.evgenee.dto.requests.StationRequestDto;
@@ -10,8 +8,14 @@ import com.voltx.evgenee.dto.responses.StationResponseDto;
 import com.voltx.evgenee.entity.EvUser;
 import com.voltx.evgenee.entity.Review;
 import com.voltx.evgenee.entity.Station;
+import com.voltx.evgenee.entity.StationAddress;
+import com.voltx.evgenee.entity.StationAmenity;
+import com.voltx.evgenee.entity.StationConnector;
+import com.voltx.evgenee.entity.StationImage;
 import com.voltx.evgenee.entity.StationMechanic;
 import com.voltx.evgenee.entity.StationOwner;
+import com.voltx.evgenee.entity.StationPeakPricing;
+import com.voltx.evgenee.entity.StationPricing;
 import com.voltx.evgenee.enums.ConnectorType;
 import com.voltx.evgenee.enums.CurrencyCode;
 import com.voltx.evgenee.enums.StationApprovalStatus;
@@ -56,7 +60,6 @@ public class StationServiceImpl implements StationService {
     private final ReviewRepository reviewRepository;
     private final UserRepository userRepository;
     private final RealtimeNotificationService realtimeNotificationService;
-    private final ObjectMapper objectMapper;
 
     @Value("${platform.fee.percentage:20.0}")
     private Double defaultPlatformFee;
@@ -171,9 +174,13 @@ public class StationServiceImpl implements StationService {
 
     @Override
     @Transactional(readOnly = true)
-    @Cacheable(cacheNames = RedisConfig.STATIONS_BY_ID, key = "'station:' + #stationId")
+    @Cacheable(cacheNames = RedisConfig.STATIONS_BY_ID, key = "'station:' + #stationId", unless = "#result.approvalStatus != T(com.voltx.evgenee.enums.StationApprovalStatus).APPROVED")
     public StationResponseDto getStationById(Long stationId) {
-        return toResponse(getStation(stationId), null, null);
+        Station station = getStation(stationId);
+        if (!isApproved(station) && !canViewUnapproved(station)) {
+            throw new ResourceNotFoundException("Station not found or not approved yet: " + stationId);
+        }
+        return toResponse(station, null, null);
     }
 
     @Override
@@ -201,13 +208,14 @@ public class StationServiceImpl implements StationService {
         String email = currentEmail();
         EvUser user = evUserRepository.findByEmail(email)
                 .orElseThrow(() -> new ResourceNotFoundException("EV user profile not found"));
-        Review review = Review.builder()
-                .station(station)
-                .user(user)
-                .rating(request.getRating())
-                .comment(request.getComment())
-                .createdAt(Instant.now())
-                .build();
+        Review review = reviewRepository.findByStationIdAndUserId(station.getId(), user.getId())
+                .orElseGet(() -> Review.builder()
+                        .station(station)
+                        .user(user)
+                        .createdAt(Instant.now())
+                        .build());
+        review.setRating(request.getRating());
+        review.setComment(request.getComment());
         return toReviewResponse(reviewRepository.save(review));
     }
 
@@ -243,7 +251,10 @@ public class StationServiceImpl implements StationService {
         station.setOpen(true);
         station.setApprovedAt(Instant.now());
         station.setApprovalNote(null);
-        return toResponse(stationRepository.save(station), null, null);
+        Station saved = stationRepository.save(station);
+        notifyStationUpdated(saved);
+        notifyStationStatus(saved);
+        return toResponse(saved, null, null);
     }
 
     @Override
@@ -258,7 +269,10 @@ public class StationServiceImpl implements StationService {
         station.setStatus(StationStatus.INACTIVE);
         station.setOpen(false);
         station.setApprovalNote(reason == null || reason.isBlank() ? "Rejected by admin" : reason);
-        return toResponse(stationRepository.save(station), null, null);
+        Station saved = stationRepository.save(station);
+        notifyStationUpdated(saved);
+        notifyStationStatus(saved);
+        return toResponse(saved, null, null);
     }
 
     @Override
@@ -349,26 +363,25 @@ public class StationServiceImpl implements StationService {
             station.setLatitude(request.getLocation().getCoordinates().get(1));
         }
         if (request.getAddress() != null) {
-            station.setAddressJson(write(request.getAddress()));
+            station.setAddressDetails(toStationAddress(station, request.getAddress()));
             station.setAddress(joinAddress(request.getAddress()));
         }
         if (request.getContactInfo() != null) {
             station.setContactPhone(request.getContactInfo().getPhoneNumber());
             station.setContactEmail(request.getContactInfo().getEmail());
         }
-        station.setAmenitiesJson(write(request.getAmenities()));
-        station.setConnectorsJson(write(request.getTypeOfConnectors()));
-        station.setPricingJson(write(request.getPricing()));
-        station.setImagesJson(write(request.getImages()));
-        station.setPeakPricingJson(write(request.getPeakPricing()));
+        replaceAmenities(station, request.getAmenities());
+        replaceConnectors(station, request.getTypeOfConnectors());
+        replacePricing(station, request.getPricing());
+        replaceImages(station, request.getImages());
+        replacePeakPricing(station, request.getPeakPricing());
     }
 
     private StationResponseDto toResponse(Station station, Double userLat, Double userLng) {
         Integer totalPorts = station.getChargersCount() != null ? station.getChargersCount() : 4;
-        List<PricingDto> pricing = read(station.getPricingJson(), new TypeReference<List<PricingDto>>() {}, defaultPricing(totalPorts));
-        List<ConnectorType> connectors = read(station.getConnectorsJson(), new TypeReference<List<ConnectorType>>() {},
-                pricing.stream().map(PricingDto::getConnectorType).toList());
-        AddressDto address = read(station.getAddressJson(), new TypeReference<AddressDto>() {}, fallbackAddress(station.getAddress()));
+        List<PricingDto> pricing = stationPricing(station, totalPorts);
+        List<ConnectorType> connectors = stationConnectors(station, pricing);
+        AddressDto address = toAddressDto(station.getAddressDetails(), fallbackAddress(station.getAddress()));
         Double distance = userLat != null && userLng != null && station.getLatitude() != null && station.getLongitude() != null
                 ? round(haversine(userLat, userLng, station.getLatitude(), station.getLongitude()))
                 : null;
@@ -390,7 +403,7 @@ public class StationServiceImpl implements StationService {
                         station.getLongitude() != null ? station.getLongitude() : 77.4126,
                         station.getLatitude() != null ? station.getLatitude() : 23.2599)).build())
                 .address(address)
-                .amenities(read(station.getAmenitiesJson(), new TypeReference<List<String>>() {}, List.of()))
+                .amenities(stationAmenities(station))
                 .totalPorts(totalPorts)
                 .availablePorts(station.getAvailablePorts() != null ? station.getAvailablePorts() : totalPorts)
                 .chargingSpeed(station.getChargingSpeed() != null ? station.getChargingSpeed() : 50)
@@ -405,7 +418,7 @@ public class StationServiceImpl implements StationService {
                 .approvalNote(station.getApprovalNote())
                 .approvedAt(station.getApprovedAt() == null ? null : station.getApprovedAt().toString())
                 .operator(station.getOperator())
-                .Images(read(station.getImagesJson(), new TypeReference<List<String>>() {}, List.of()))
+                .Images(stationImages(station))
                 .mechanic(firstMechanic(station))
                 .mechanics(station.getMechanics() == null ? List.of() : station.getMechanics().stream()
                         .map(this::toMechanicResponse)
@@ -419,7 +432,7 @@ public class StationServiceImpl implements StationService {
                         .toList())
                 .distance(distance)
                 .distanceKm(distance)
-                .peakPricing(read(station.getPeakPricingJson(), new TypeReference<List<PeakPricingDto>>() {}, List.of()))
+                .peakPricing(stationPeakPricing(station))
                 .build();
     }
 
@@ -457,6 +470,18 @@ public class StationServiceImpl implements StationService {
         var auth = SecurityContextHolder.getContext().getAuthentication();
         return auth != null && auth.getAuthorities().stream()
                 .anyMatch(a -> "ROLE_ADMIN".equals(a.getAuthority()));
+    }
+
+    private boolean canViewUnapproved(Station station) {
+        if (isAdmin()) return true;
+        var auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || auth.getName() == null || "anonymousUser".equals(auth.getName())) {
+            return false;
+        }
+        String ownerEmail = station.getOwner() == null || station.getOwner().getAuthUser() == null
+                ? null
+                : station.getOwner().getAuthUser().getEmail();
+        return ownerEmail != null && ownerEmail.equalsIgnoreCase(auth.getName());
     }
 
     private MechanicDto toMechanicResponse(StationMechanic mechanic) {
@@ -518,28 +543,141 @@ public class StationServiceImpl implements StationService {
         return station.getStatus() != null ? StationApprovalStatus.APPROVED : StationApprovalStatus.PENDING;
     }
 
-    private String write(Object value) {
-        if (value == null) return null;
-        try {
-            return objectMapper.writeValueAsString(value);
-        } catch (Exception e) {
-            throw new BadRequestException("Invalid station data");
-        }
-    }
-
-    private <T> T read(String json, TypeReference<T> type, T fallback) {
-        if (json == null || json.isBlank()) return fallback;
-        try {
-            return objectMapper.readValue(json, type);
-        } catch (Exception ignored) {
-            return fallback;
-        }
-    }
-
     private List<PricingDto> defaultPricing(Integer totalPorts) {
         return List.of(
                 PricingDto.builder().connectorType(ConnectorType.CCS2).priceperKWh(15.0).portCount(Math.max(1, totalPorts / 2)).currency(CurrencyCode.INR).build(),
                 PricingDto.builder().connectorType(ConnectorType.TYPE2).priceperKWh(12.0).portCount(Math.max(1, totalPorts / 2)).currency(CurrencyCode.INR).build());
+    }
+
+    private StationAddress toStationAddress(Station station, AddressDto address) {
+        StationAddress entity = station.getAddressDetails() == null ? new StationAddress() : station.getAddressDetails();
+        entity.setStation(station);
+        entity.setCity(address.getCity());
+        entity.setState(address.getState());
+        entity.setCountry(address.getCountry());
+        entity.setPostalCode(address.getPostalCode());
+        entity.setStreet(address.getStreet());
+        return entity;
+    }
+
+    private AddressDto toAddressDto(StationAddress address, AddressDto fallback) {
+        if (address == null) return fallback;
+        return AddressDto.builder()
+                .city(address.getCity())
+                .state(address.getState())
+                .country(address.getCountry())
+                .postalCode(address.getPostalCode())
+                .street(address.getStreet())
+                .build();
+    }
+
+    private void replaceAmenities(Station station, List<String> amenities) {
+        station.getAmenities().clear();
+        if (amenities == null) return;
+        amenities.stream()
+                .filter(item -> item != null && !item.isBlank())
+                .map(item -> StationAmenity.builder().station(station).name(item).build())
+                .forEach(station.getAmenities()::add);
+    }
+
+    private void replaceConnectors(Station station, List<ConnectorType> connectors) {
+        station.getConnectors().clear();
+        if (connectors == null) return;
+        connectors.stream()
+                .filter(java.util.Objects::nonNull)
+                .distinct()
+                .map(item -> StationConnector.builder().station(station).connectorType(item).build())
+                .forEach(station.getConnectors()::add);
+    }
+
+    private void replacePricing(Station station, List<PricingDto> pricing) {
+        station.getPricing().clear();
+        if (pricing == null) return;
+        pricing.stream()
+                .filter(java.util.Objects::nonNull)
+                .map(item -> StationPricing.builder()
+                        .station(station)
+                        .connectorType(item.getConnectorType())
+                        .priceperKWh(item.getPriceperKWh())
+                        .portCount(item.getPortCount())
+                        .currency(item.getCurrency())
+                        .build())
+                .forEach(station.getPricing()::add);
+    }
+
+    private void replaceImages(Station station, List<String> images) {
+        station.getImages().clear();
+        if (images == null) return;
+        images.stream()
+                .filter(item -> item != null && !item.isBlank())
+                .map(item -> StationImage.builder().station(station).url(item).build())
+                .forEach(station.getImages()::add);
+    }
+
+    private void replacePeakPricing(Station station, List<PeakPricingDto> peakPricing) {
+        station.getPeakPricing().clear();
+        if (peakPricing == null) return;
+        peakPricing.stream()
+                .filter(java.util.Objects::nonNull)
+                .map(item -> StationPeakPricing.builder()
+                        .station(station)
+                        .startTime(item.getStartTime())
+                        .endTime(item.getEndTime())
+                        .multiplier(item.getMultiplier())
+                        .build())
+                .forEach(station.getPeakPricing()::add);
+    }
+
+    private List<String> stationAmenities(Station station) {
+        if (station.getAmenities() == null) return List.of();
+        return station.getAmenities().stream()
+                .map(StationAmenity::getName)
+                .filter(java.util.Objects::nonNull)
+                .toList();
+    }
+
+    private List<ConnectorType> stationConnectors(Station station, List<PricingDto> pricing) {
+        if (station.getConnectors() != null && !station.getConnectors().isEmpty()) {
+            return station.getConnectors().stream()
+                    .map(StationConnector::getConnectorType)
+                    .filter(java.util.Objects::nonNull)
+                    .distinct()
+                    .toList();
+        }
+        return pricing.stream().map(PricingDto::getConnectorType).filter(java.util.Objects::nonNull).toList();
+    }
+
+    private List<PricingDto> stationPricing(Station station, Integer totalPorts) {
+        if (station.getPricing() == null || station.getPricing().isEmpty()) {
+            return defaultPricing(totalPorts);
+        }
+        return station.getPricing().stream()
+                .map(item -> PricingDto.builder()
+                        .connectorType(item.getConnectorType())
+                        .priceperKWh(item.getPriceperKWh())
+                        .portCount(item.getPortCount())
+                        .currency(item.getCurrency())
+                        .build())
+                .toList();
+    }
+
+    private List<String> stationImages(Station station) {
+        if (station.getImages() == null) return List.of();
+        return station.getImages().stream()
+                .map(StationImage::getUrl)
+                .filter(java.util.Objects::nonNull)
+                .toList();
+    }
+
+    private List<PeakPricingDto> stationPeakPricing(Station station) {
+        if (station.getPeakPricing() == null) return List.of();
+        return station.getPeakPricing().stream()
+                .map(item -> PeakPricingDto.builder()
+                        .startTime(item.getStartTime())
+                        .endTime(item.getEndTime())
+                        .multiplier(item.getMultiplier())
+                        .build())
+                .toList();
     }
 
     private AddressDto fallbackAddress(String address) {

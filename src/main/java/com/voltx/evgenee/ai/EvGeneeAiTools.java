@@ -1,6 +1,5 @@
 package com.voltx.evgenee.ai;
 
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.voltx.evgenee.client.GeocodingService;
 import com.voltx.evgenee.dto.common.PricingDto;
@@ -11,6 +10,7 @@ import com.voltx.evgenee.entity.*;
 import com.voltx.evgenee.enums.BookingStatus;
 import com.voltx.evgenee.enums.ConnectorType;
 import com.voltx.evgenee.enums.CurrencyCode;
+import com.voltx.evgenee.enums.StationApprovalStatus;
 import com.voltx.evgenee.enums.StationStatus;
 import com.voltx.evgenee.repository.*;
 import com.voltx.evgenee.service.PaymentService;
@@ -298,15 +298,15 @@ public class EvGeneeAiTools {
                         .portCount(Math.max(1, ports / 2)).currency(CurrencyCode.INR).build(),
                 PricingDto.builder().connectorType(ConnectorType.TYPE2).priceperKWh(12.0)
                         .portCount(Math.max(1, ports / 2)).currency(CurrencyCode.INR).build());
-        if (!hasText(station.getPricingJson())) return fallback;
-        try {
-            List<PricingDto> parsed = objectMapper.readValue(
-                    station.getPricingJson(), new TypeReference<List<PricingDto>>() {});
-            return parsed == null || parsed.isEmpty() ? fallback : parsed;
-        } catch (Exception e) {
-            log.warn("Invalid pricing JSON for station {}: {}", station.getId(), e.getMessage());
-            return fallback;
-        }
+        if (station.getPricing() == null || station.getPricing().isEmpty()) return fallback;
+        return station.getPricing().stream()
+                .map(item -> PricingDto.builder()
+                        .connectorType(item.getConnectorType())
+                        .priceperKWh(item.getPriceperKWh())
+                        .portCount(item.getPortCount())
+                        .currency(item.getCurrency())
+                        .build())
+                .toList();
     }
 
     private List<String> stationConnectors(Station station, List<PricingDto> pricing) {
@@ -316,17 +316,13 @@ public class EvGeneeAiTools {
                 .filter(EvGeneeAiTools::hasText)
                 .distinct()
                 .toList();
-        if (!hasText(station.getConnectorsJson())) return fallback;
-        try {
-            List<ConnectorType> parsed = objectMapper.readValue(
-                    station.getConnectorsJson(), new TypeReference<List<ConnectorType>>() {});
-            return parsed == null || parsed.isEmpty()
-                    ? fallback
-                    : parsed.stream().map(EvGeneeAiTools::connectorValue).filter(EvGeneeAiTools::hasText).distinct().toList();
-        } catch (Exception e) {
-            log.warn("Invalid connector JSON for station {}: {}", station.getId(), e.getMessage());
-            return fallback;
-        }
+        if (station.getConnectors() == null || station.getConnectors().isEmpty()) return fallback;
+        return station.getConnectors().stream()
+                .map(StationConnector::getConnectorType)
+                .map(EvGeneeAiTools::connectorValue)
+                .filter(EvGeneeAiTools::hasText)
+                .distinct()
+                .toList();
     }
 
     private boolean sameConnector(Object first, Object second) {
@@ -456,7 +452,9 @@ public class EvGeneeAiTools {
                     locationName = "Bhopal";
                 }
 
-                List<Station> stations = new ArrayList<>(stationRepository.findAll());
+                List<Station> stations = new ArrayList<>(
+                        stationRepository.findByApprovalStatusAndLatitudeIsNotNullAndLongitudeIsNotNullOrderByIdDesc(
+                                StationApprovalStatus.APPROVED));
                 final double[] finalCoords = coords;
                 stations.sort(Comparator.comparingDouble(s -> calculateDistance(finalCoords[1], finalCoords[0], s.getLatitude() != null ? s.getLatitude() : BhopalLat, s.getLongitude() != null ? s.getLongitude() : BhopalLon)));
                 if (stations.isEmpty()) {

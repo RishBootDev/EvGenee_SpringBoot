@@ -9,6 +9,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 
 @Entity
@@ -44,40 +45,42 @@ public class Station {
     private Instant approvedAt;
     private String approvalNote;
 
-    @Lob
-    @Column(columnDefinition = "TEXT")
-    private String addressJson;
+    @OneToOne(mappedBy = "station", cascade = CascadeType.ALL, orphanRemoval = true)
+    private StationAddress addressDetails;
 
-    @Lob
-    @Column(columnDefinition = "TEXT")
-    private String amenitiesJson;
+    @OneToMany(mappedBy = "station", cascade = CascadeType.ALL, orphanRemoval = true)
+    @Builder.Default
+    private List<StationAmenity> amenities = new ArrayList<>();
 
-    @Lob
-    @Column(columnDefinition = "TEXT")
-    private String connectorsJson;
+    @OneToMany(mappedBy = "station", cascade = CascadeType.ALL, orphanRemoval = true)
+    @Builder.Default
+    private List<StationConnector> connectors = new ArrayList<>();
 
-    @Lob
-    @Column(columnDefinition = "TEXT")
-    private String pricingJson;
+    @OneToMany(mappedBy = "station", cascade = CascadeType.ALL, orphanRemoval = true)
+    @Builder.Default
+    private List<StationPricing> pricing = new ArrayList<>();
 
-    @Lob
-    @Column(columnDefinition = "TEXT")
-    private String imagesJson;
+    @OneToMany(mappedBy = "station", cascade = CascadeType.ALL, orphanRemoval = true)
+    @Builder.Default
+    private List<StationImage> images = new ArrayList<>();
 
-    @Lob
-    @Column(columnDefinition = "TEXT")
-    private String peakPricingJson;
+    @OneToMany(mappedBy = "station", cascade = CascadeType.ALL, orphanRemoval = true)
+    @Builder.Default
+    private List<StationPeakPricing> peakPricing = new ArrayList<>();
 
     @ManyToOne
     @JoinColumn(name = "owner_id")
     private StationOwner owner;
 
     @OneToMany(mappedBy = "station", cascade = CascadeType.ALL)
-    private List<Review> reviews;
+    @Builder.Default
+    private List<Review> reviews = new ArrayList<>();
 
     @OneToMany(mappedBy = "station", cascade = CascadeType.ALL)
-    private List<Booking> bookings;
+    @Builder.Default
+    private List<Booking> bookings = new ArrayList<>();
 
     @OneToMany(mappedBy = "station", cascade = CascadeType.ALL)
-    private List<StationMechanic> mechanics;
+    @Builder.Default
+    private List<StationMechanic> mechanics = new ArrayList<>();
 }

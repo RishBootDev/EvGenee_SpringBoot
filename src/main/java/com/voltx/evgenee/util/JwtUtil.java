@@ -20,6 +20,9 @@ public class JwtUtil {
 	@Value("${jwt.secret}")
 	private String secret;
 
+	@Value("${jwt.expiration-ms:604800000}")
+	private long expirationMs;
+
 	private SecretKey getSigningKey()
 	{
 		SecretKey sKey=Keys.hmacShaKeyFor(secret.getBytes());
@@ -32,7 +35,7 @@ public class JwtUtil {
 				 .setSubject(email)
 				 .setIssuedAt(new Date(System.currentTimeMillis()))
 				 .claim("roles", roles)
-				 .setExpiration(new Date(System.currentTimeMillis()+1000*60*60))
+				 .setExpiration(new Date(System.currentTimeMillis() + expirationMs))
 				 .signWith(getSigningKey())
 				 .compact();
 	 }

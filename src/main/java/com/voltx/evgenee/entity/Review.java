@@ -9,7 +9,9 @@ import lombok.NoArgsConstructor;
 import java.time.Instant;
 
 @Entity
-@Table(name = "reviews")
+@Table(name = "reviews", uniqueConstraints = {
+        @UniqueConstraint(name = "uk_review_station_user", columnNames = {"station_id", "user_id"})
+})
 @Data
 @NoArgsConstructor
 @AllArgsConstructor

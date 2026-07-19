@@ -1,5 +1,7 @@
 package com.voltx.evgenee.configuration;
 
+import com.voltx.evgenee.dto.responses.UserResponseDto;
+import com.voltx.evgenee.dto.responses.StationResponseDto;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.cache.Cache;
@@ -14,6 +16,7 @@ import org.springframework.data.redis.cache.RedisCacheConfiguration;
 import org.springframework.data.redis.cache.RedisCacheManager;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.serializer.GenericJacksonJsonRedisSerializer;
+import org.springframework.data.redis.serializer.JacksonJsonRedisSerializer;
 import org.springframework.data.redis.serializer.RedisSerializationContext;
 
 import java.time.Duration;
@@ -46,13 +49,23 @@ public class RedisConfig implements CachingConfigurer {
                 .prefixCacheNameWith(normalizedCachePrefix())
                 .entryTtl(Duration.ofMinutes(10))
                 .serializeValuesWith(RedisSerializationContext.SerializationPair.fromSerializer(serializer));
+        RedisCacheConfiguration userProfileCache = defaults
+                .entryTtl(Duration.ofMinutes(5))
+                .serializeValuesWith(RedisSerializationContext.SerializationPair.fromSerializer(
+                        new JacksonJsonRedisSerializer<>(UserResponseDto.class)
+                ));
+        RedisCacheConfiguration stationByIdCache = defaults
+                .entryTtl(Duration.ofMinutes(10))
+                .serializeValuesWith(RedisSerializationContext.SerializationPair.fromSerializer(
+                        new JacksonJsonRedisSerializer<>(StationResponseDto.class)
+                ));
 
         Map<String, RedisCacheConfiguration> cacheConfigs = Map.of(
                 STATIONS_ALL, defaults.entryTtl(Duration.ofMinutes(5)),
-                STATIONS_BY_ID, defaults.entryTtl(Duration.ofMinutes(10)),
+                STATIONS_BY_ID, stationByIdCache,
                 STATIONS_BY_OWNER, defaults.entryTtl(Duration.ofMinutes(5)),
                 STATIONS_NEARBY, defaults.entryTtl(Duration.ofMinutes(2)),
-                USERS_PROFILE, defaults.entryTtl(Duration.ofMinutes(5)),
+                USERS_PROFILE, userProfileCache,
                 ROADSIDE_STATIC, defaults.entryTtl(Duration.ofHours(12)),
                 GEOCODING, defaults.entryTtl(Duration.ofDays(7)),
                 REVERSE_GEOCODING, defaults.entryTtl(Duration.ofDays(7)),

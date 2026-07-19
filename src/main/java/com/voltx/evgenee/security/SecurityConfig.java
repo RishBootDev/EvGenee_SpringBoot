@@ -2,6 +2,7 @@ package com.voltx.evgenee.security;
 
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpMethod;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -60,6 +61,7 @@ public class SecurityConfig {
                     .requestMatchers("/api/v1/roadside/station/**").hasAnyRole("ADMIN", "STATION_OWNER")
                     .requestMatchers("/api/v1/stations/admin/**").hasRole("ADMIN")
                     .requestMatchers("/api/v1/stations/owner/**").hasAnyRole("ADMIN", "STATION_OWNER")
+                    .requestMatchers(HttpMethod.POST, "/api/v1/stations/*/review").hasRole("EV_USER")
                     .anyRequest().authenticated()
             )
             .addFilterBefore(jwtRequestFilter, UsernamePasswordAuthenticationFilter.class);

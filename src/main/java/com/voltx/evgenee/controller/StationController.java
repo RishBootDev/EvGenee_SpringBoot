@@ -8,6 +8,7 @@ import com.voltx.evgenee.dto.responses.ApiResponse;
 import com.voltx.evgenee.dto.responses.ReviewResponseDto;
 import com.voltx.evgenee.dto.responses.StationResponseDto;
 import com.voltx.evgenee.service.StationService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
 import org.springframework.http.ResponseEntity;
@@ -52,7 +53,7 @@ public class StationController {
     @PostMapping("/{stationId}/review")
     public ResponseEntity<ApiResponse<ReviewResponseDto>> addReview(
             @PathVariable String stationId,
-            @RequestBody ReviewRequestDto request) {
+            @Valid @RequestBody ReviewRequestDto request) {
 
         return ResponseEntity.ok(ApiResponse.ok(
                 stationService.addReview(
