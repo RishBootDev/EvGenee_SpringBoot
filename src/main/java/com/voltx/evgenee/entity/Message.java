@@ -2,10 +2,7 @@ package com.voltx.evgenee.entity;
 
 import com.voltx.evgenee.enums.MessageRole;
 import jakarta.persistence.*;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import lombok.*;
 
 import java.time.Instant;
 
