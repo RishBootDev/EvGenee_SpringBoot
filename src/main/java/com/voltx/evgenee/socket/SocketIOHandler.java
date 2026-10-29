@@ -57,8 +57,13 @@ public class SocketIOHandler {
             String email = jwtUtil.extractEmail(token);
             if (email != null && jwtUtil.validateToken(token, email)) {
                 client.set("email", email);
+            } else {
+                throw new UnauthorizedException("Invalid JWT token");
             }
-        } catch (Exception ignored) {
+        } catch (UnauthorizedException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new UnauthorizedException("Invalid JWT token");
         }
     }
 

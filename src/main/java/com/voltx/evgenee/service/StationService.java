@@ -5,10 +5,15 @@ import com.voltx.evgenee.dto.requests.ReviewRequestDto;
 import com.voltx.evgenee.dto.requests.StationRequestDto;
 import com.voltx.evgenee.dto.responses.ReviewResponseDto;
 import com.voltx.evgenee.dto.responses.StationResponseDto;
+import com.voltx.evgenee.entity.Station;
 
 import java.util.List;
 
 public interface StationService {
+
+    List<Station> getStationsForAiSearch();
+
+    Station getStationForAiBooking(Long stationId);
 
     List<StationResponseDto> getNearbyStations(
             Double latitude,

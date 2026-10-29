@@ -1,5 +1,6 @@
 package com.voltx.evgenee.configuration;
 
+import com.voltx.evgenee.client.GeocodingService;
 import com.voltx.evgenee.dto.responses.UserResponseDto;
 import com.voltx.evgenee.dto.responses.StationResponseDto;
 import org.slf4j.Logger;
@@ -59,6 +60,11 @@ public class RedisConfig implements CachingConfigurer {
                 .serializeValuesWith(RedisSerializationContext.SerializationPair.fromSerializer(
                         new JacksonJsonRedisSerializer<>(StationResponseDto.class)
                 ));
+        RedisCacheConfiguration roadDistanceCache = defaults
+                .entryTtl(Duration.ofHours(6))
+                .serializeValuesWith(RedisSerializationContext.SerializationPair.fromSerializer(
+                        new JacksonJsonRedisSerializer<>(GeocodingService.RoadInfo.class)
+                ));
 
         Map<String, RedisCacheConfiguration> cacheConfigs = Map.of(
                 STATIONS_ALL, defaults.entryTtl(Duration.ofMinutes(5)),
@@ -69,7 +75,7 @@ public class RedisConfig implements CachingConfigurer {
                 ROADSIDE_STATIC, defaults.entryTtl(Duration.ofHours(12)),
                 GEOCODING, defaults.entryTtl(Duration.ofDays(7)),
                 REVERSE_GEOCODING, defaults.entryTtl(Duration.ofDays(7)),
-                ROAD_DISTANCE, defaults.entryTtl(Duration.ofHours(6))
+                ROAD_DISTANCE, roadDistanceCache
         );
 
         return RedisCacheManager.builder(connectionFactory)

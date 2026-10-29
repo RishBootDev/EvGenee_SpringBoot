@@ -18,9 +18,18 @@ public class ToolResultHolder {
         RESULT.remove();
     }
 
-    public record ToolResult(String bookingId, Boolean redirect, Object stations, RazorpayCheckoutDto checkout) {
+    public record ToolResult(
+            String bookingId,
+            Boolean redirect,
+            Object stations,
+            RazorpayCheckoutDto checkout,
+            String assistantMessage) {
         public ToolResult(String bookingId, Boolean redirect, Object stations) {
-            this(bookingId, redirect, stations, null);
+            this(bookingId, redirect, stations, null, null);
+        }
+
+        public ToolResult(String bookingId, Boolean redirect, Object stations, RazorpayCheckoutDto checkout) {
+            this(bookingId, redirect, stations, checkout, null);
         }
     }
 }

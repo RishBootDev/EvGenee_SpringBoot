@@ -34,6 +34,7 @@ import com.voltx.evgenee.service.StationService;
 import com.voltx.evgenee.socket.RealtimeNotificationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.hibernate.Hibernate;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
@@ -63,6 +64,32 @@ public class StationServiceImpl implements StationService {
 
     @Value("${platform.fee.percentage:20.0}")
     private Double defaultPlatformFee;
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<Station> getStationsForAiSearch() {
+        List<Station> stations = stationRepository
+                .findByApprovalStatusAndLatitudeIsNotNullAndLongitudeIsNotNullOrderByIdDesc(
+                        StationApprovalStatus.APPROVED);
+        stations.forEach(this::initializeAiBookingData);
+        return stations;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Station getStationForAiBooking(Long stationId) {
+        return stationRepository.findById(stationId)
+                .map(station -> {
+                    initializeAiBookingData(station);
+                    return station;
+                })
+                .orElse(null);
+    }
+
+    private void initializeAiBookingData(Station station) {
+        Hibernate.initialize(station.getPricing());
+        Hibernate.initialize(station.getConnectors());
+    }
 
     @Override
     @Transactional(readOnly = true)

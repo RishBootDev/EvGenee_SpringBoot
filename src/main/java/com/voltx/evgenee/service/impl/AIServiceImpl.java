@@ -13,6 +13,7 @@ import com.voltx.evgenee.entity.User;
 import com.voltx.evgenee.entity.Vehicle;
 import com.voltx.evgenee.enums.ChatMessageRole;
 import com.voltx.evgenee.enums.ConnectorType;
+import com.voltx.evgenee.exceptions.UnauthorizedException;
 import com.voltx.evgenee.repository.ChatMessageRepository;
 import com.voltx.evgenee.repository.EvUserRepository;
 import com.voltx.evgenee.repository.UserRepository;
@@ -147,7 +148,7 @@ public class AIServiceImpl implements AIService {
             }
         } else {
             profileInfo.append("\nAuthenticated User:\n- EV profile is unavailable for email: ")
-                    .append(userEmail).append("\n");
+                    .append(userEmail).append("\n- Saved Vehicles: None\n");
         }
 
         StringBuilder locationInfo = new StringBuilder();
@@ -176,7 +177,7 @@ public class AIServiceImpl implements AIService {
                 2. Never invent station names, ids, connector support, prices, distances, or availability.
                 3. Before any station search, the user must explicitly provide or confirm: saved vehicle, date, and start time.
                 4. If any of those three details are missing, ask one concise question listing only the missing details. Do not call a tool yet.
-                5. Always ask which saved vehicle is being used, even when only one vehicle is saved.
+                5. If Saved Vehicles is None, tell the user: "Please add a car to your profile before searching for charging stations." Do not ask which vehicle or call a station/booking tool. Otherwise, always ask which saved vehicle is being used, even when only one is saved.
                 6. Never ask for location or connector type. Inject location from GPS/account context and derive connector from the selected saved vehicle.
                 7. Use one hour when end time or duration is omitted.
                 8. Nearby station context is orientation data only. Call find_best_station for live requested-slot availability.
@@ -328,6 +329,10 @@ public class AIServiceImpl implements AIService {
     }
 
     private String safeToolResponse(ToolResultHolder.ToolResult toolResult) {
+        if (toolResult != null && toolResult.assistantMessage() != null
+                && !toolResult.assistantMessage().isBlank()) {
+            return toolResult.assistantMessage();
+        }
         if (toolResult != null && toolResult.bookingId() != null) {
             return "Your booking is reserved. Razorpay Checkout is opening for the 20% advance.";
         }
@@ -361,20 +366,21 @@ public class AIServiceImpl implements AIService {
                 ? threadId
                 : UUID.randomUUID().toString();
 
+        if (userEmail == null || userEmail.isBlank()) {
+            throw new UnauthorizedException("Authentication is required for AI chat.");
+        }
+
         UserContextHolder.set(new UserContextHolder.UserContext(userEmail, latitude, longitude));
         ToolResultHolder.clear();
         try {
-            Long userId = 0L;
+            Long userId;
             EvUser evUser = null;
-            if (userEmail != null) {
-                Optional<User> uOpt = userRepository.findByEmail(userEmail);
-                if (uOpt.isPresent()) {
-                    userId = (long) uOpt.get().getId();
-                }
-                Optional<EvUser> euOpt = evUserRepository.findByEmail(userEmail);
-                if (euOpt.isPresent()) {
-                    evUser = euOpt.get();
-                }
+            User authUser = userRepository.findByEmail(userEmail)
+                    .orElseThrow(() -> new UnauthorizedException("Authenticated user was not found."));
+            userId = authUser.getId();
+            Optional<EvUser> euOpt = evUserRepository.findByEmail(userEmail);
+            if (euOpt.isPresent()) {
+                evUser = euOpt.get();
             }
 
             ChatMessage userMsg = ChatMessage.builder()
@@ -387,7 +393,8 @@ public class AIServiceImpl implements AIService {
             chatMessageRepository.save(userMsg);
 
             List<ChatMessage> history = new ArrayList<>(
-                    chatMessageRepository.findTop30ByThreadIdOrderByCreatedAtDesc(effectiveThreadId));
+                    chatMessageRepository.findTop30ByUserIdAndThreadIdOrderByCreatedAtDesc(
+                            userId, effectiveThreadId));
             if (history.size() > 10) {
                 history = new ArrayList<>(history.subList(0, 10));
             }
@@ -420,6 +427,10 @@ public class AIServiceImpl implements AIService {
             String systemPrompt = getSystemPrompt(evUser, userEmail, latitude, longitude);
             String aiResponse = callModel(systemPrompt, springAiMessages);
             ToolResultHolder.ToolResult toolResult = ToolResultHolder.get();
+            if (toolResult != null && toolResult.assistantMessage() != null
+                    && !toolResult.assistantMessage().isBlank()) {
+                aiResponse = toolResult.assistantMessage();
+            }
 
             if (isMalformedAiOutput(aiResponse) || isRepetitiveAiOutput(aiResponse, history)) {
                 log.warn("Blocked malformed AI output for thread {}", effectiveThreadId);
@@ -474,6 +485,8 @@ public class AIServiceImpl implements AIService {
                     .data(dataBuilder)
                     .build();
 
+        } catch (UnauthorizedException e) {
+            throw e;
         } catch (Exception e) {
             if (isContextLimitError(e)) {
                 log.warn("AI request exceeded provider token limits for thread {}", effectiveThreadId);

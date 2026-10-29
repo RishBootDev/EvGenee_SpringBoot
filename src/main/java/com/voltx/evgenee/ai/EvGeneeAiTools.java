@@ -14,6 +14,7 @@ import com.voltx.evgenee.enums.StationApprovalStatus;
 import com.voltx.evgenee.enums.StationStatus;
 import com.voltx.evgenee.repository.*;
 import com.voltx.evgenee.service.PaymentService;
+import com.voltx.evgenee.service.StationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.tool.annotation.Tool;
@@ -31,16 +32,18 @@ import java.util.*;
 @RequiredArgsConstructor
 public class EvGeneeAiTools {
 
-    private final StationRepository stationRepository;
     private final BookingRepository bookingRepository;
     private final EvUserRepository evUserRepository;
     private final VehicleRepository vehicleRepository;
     private final GeocodingService geocodingService;
     private final PaymentService paymentService;
+    private final StationService stationService;
     private final ObjectMapper objectMapper;
 
     private static final double BhopalLon = 77.4126;
     private static final double BhopalLat = 23.2599;
+    private static final String MISSING_VEHICLE_MESSAGE =
+            "Please add a car to your profile before searching for charging stations.";
     private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
 
     private static String minutesToTime(int minutes) {
@@ -416,13 +419,22 @@ public class EvGeneeAiTools {
                 if (!hasText(userEmail)) {
                     return error("The user must be logged in before searching.");
                 }
+                EvUser currentUser = evUserRepository.findByEmail(userEmail).orElse(null);
+                if (currentUser == null) {
+                    ToolResultHolder.set(new ToolResultHolder.ToolResult(
+                            null, null, null, null, MISSING_VEHICLE_MESSAGE));
+                    return error(MISSING_VEHICLE_MESSAGE);
+                }
+                if (vehicleRepository.findByOwnerId(currentUser.getId()).isEmpty()) {
+                    ToolResultHolder.set(new ToolResultHolder.ToolResult(
+                            null, null, null, null, MISSING_VEHICLE_MESSAGE));
+                    return error(MISSING_VEHICLE_MESSAGE);
+                }
                 if (input == null || !hasText(input.vehicleNumber())
                         || !hasText(input.date()) || !hasText(input.startTime())) {
                     return error("Ask the user for their saved vehicle, date, and start time before searching.");
                 }
 
-                EvUser currentUser = evUserRepository.findByEmail(userEmail)
-                        .orElseThrow(() -> new IllegalArgumentException("EV user profile not found."));
                 Vehicle selectedVehicle = resolveSelectedVehicle(currentUser, input.vehicleNumber());
                 String effectiveConnectorType = connectorFor(selectedVehicle);
 
@@ -452,9 +464,7 @@ public class EvGeneeAiTools {
                     locationName = "Bhopal";
                 }
 
-                List<Station> stations = new ArrayList<>(
-                        stationRepository.findByApprovalStatusAndLatitudeIsNotNullAndLongitudeIsNotNullOrderByIdDesc(
-                                StationApprovalStatus.APPROVED));
+                List<Station> stations = new ArrayList<>(stationService.getStationsForAiSearch());
                 final double[] finalCoords = coords;
                 stations.sort(Comparator.comparingDouble(s -> calculateDistance(finalCoords[1], finalCoords[0], s.getLatitude() != null ? s.getLatitude() : BhopalLat, s.getLongitude() != null ? s.getLongitude() : BhopalLon)));
                 if (stations.isEmpty()) {
@@ -702,11 +712,10 @@ public class EvGeneeAiTools {
                 Vehicle vehicle = resolveSelectedVehicle(evUser, input.vehicleNumber());
                 String effectiveConnectorType = connectorFor(vehicle);
 
-                Optional<Station> stOpt = stationRepository.findById(Long.parseLong(input.stationId()));
-                if (stOpt.isEmpty()) {
+                Station station = stationService.getStationForAiBooking(Long.parseLong(input.stationId()));
+                if (station == null) {
                     return "{\"error\": \"Station not found.\" }";
                 }
-                Station station = stOpt.get();
                 if (Boolean.FALSE.equals(station.getOpen()) || station.getStatus() == StationStatus.INACTIVE) {
                     return "{\"error\": \"This station is currently closed and cannot accept new bookings.\" }";
                 }
